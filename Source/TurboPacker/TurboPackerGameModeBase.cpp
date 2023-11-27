@@ -1,10 +1,10 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
-
 
 #include "TurboPackerGameModeBase.h"
 
-#include <vector>
-#include <complex>
+ATurboPackerGameModeBase::ATurboPackerGameModeBase() {
+	PrimaryActorTick.bCanEverTick = true;
+	LStream::set();
+}
 
 void ATurboPackerGameModeBase::BeginPlay() {
 

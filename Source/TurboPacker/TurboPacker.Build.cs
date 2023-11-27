@@ -29,13 +29,13 @@ public class TurboPacker : ModuleRules
         //PublicDefinitions.Add("__GNUC__=3");
         //PublicDefinitions.Add("__GNUC_MINOR__=6");
 
-        //PublicDelayLoadDLLs.Add("libfftw3-3.dll");
+        PublicDelayLoadDLLs.Add("libfftw3-3.dll");
         PublicDelayLoadDLLs.Add("libfftw3f-3.dll");
-        //PublicDelayLoadDLLs.Add("libfftw3l-3.dll");
+        PublicDelayLoadDLLs.Add("libfftw3l-3.dll");
 
-        //PublicAdditionalLibraries.Add(Path.Combine(ModuleDirectory, "../../Libs/FFTW/libfftw3-3.lib"));
+        PublicAdditionalLibraries.Add(Path.Combine(ModuleDirectory, "../../Libs/FFTW/libfftw3-3.lib"));
         PublicAdditionalLibraries.Add(Path.Combine(ModuleDirectory, "../../Libs/FFTW/libfftw3f-3.lib"));
-        //PublicAdditionalLibraries.Add(Path.Combine(ModuleDirectory, "../../Libs/FFTW/libfftw3l-3.lib"));
+        PublicAdditionalLibraries.Add(Path.Combine(ModuleDirectory, "../../Libs/FFTW/libfftw3l-3.lib"));
 
         //AddEngineThirdPartyPrivateStaticDependencies(Target, "Eigen");
 

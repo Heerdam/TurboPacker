@@ -5,7 +5,9 @@
 #include "CoreMinimal.h"
 
 class FTurboPackerGameModule : public IModuleInterface {
-	void* handle;
+	void* handle1;
+	void* handle2;
+	void* handle3;
 public:
 	void StartupModule() override;
 	void ShutdownModule() override;

@@ -2,11 +2,8 @@
 
 #pragma once
 
-#include <Eigen/Core>
-#include <unsupported/Eigen/FFT>
+#include "Util.h"
 
-
-#include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
 #include "TurboPackerGameModeBase.generated.h"
 
@@ -18,7 +15,7 @@ class TURBOPACKER_API ATurboPackerGameModeBase : public AGameModeBase {
 	GENERATED_BODY()
 
 public:
-
+	ATurboPackerGameModeBase();
 	void BeginPlay() override;
 	
 };//ATurboPackerGameModeBase
