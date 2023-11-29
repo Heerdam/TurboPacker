@@ -36,8 +36,16 @@ class TURBOPACKER_API ASpectralTester : public AActor {
 	GENERATED_BODY()
 
 public:
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = Test)
+	void Clear();
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = Test)
 	void TestInfGrid();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = Test)
+	void TestHeightMap();
+
+	UPROPERTY(EditAnywhere)
+	int32 Itensity = 8;
 
 };

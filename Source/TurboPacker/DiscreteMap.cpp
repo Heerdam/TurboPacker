@@ -1,6 +1,15 @@
 
 #include "DiscreteMap.h"
 
+void ASpectralTester::Clear() {
+	using namespace Util;
+
+	UWorld* world = GetWorld();
+	if (!world) return;
+
+	FlushPersistentDebugLines(world);
+}//ASpectralTester::Clear()
+
 void ASpectralTester::TestInfGrid() {
 
 	using namespace Util;
@@ -42,3 +51,60 @@ void ASpectralTester::TestInfGrid() {
 	}
 
 }//ASpectralTester::TestInfGrid
+
+void ASpectralTester::TestHeightMap() {
+
+	using namespace Util;
+
+	UWorld* world = GetWorld();
+	if (!world) return;
+
+	FlushPersistentDebugLines(world);
+
+	const FBox bounds(FVector(0.f), FVector(120, 80, 1700));
+	DrawDebugBox(world, bounds.GetCenter(), bounds.GetExtent(), FColor::Blue, true);
+
+	//1200*800*1700
+	using Rollcage = HeightMap<120, 80, 1700>;
+	Rollcage map;
+	
+	const FBox p(FVector(40, 20, 0), FVector(60, 60, 10));
+	DrawDebugBox(world, p.GetCenter(), p.GetExtent(), FColor::Blue, true);
+
+	map.push(p.GetCenter(), p.GetExtent());
+
+	{
+		const auto start = std::chrono::high_resolution_clock::now();
+		const auto res = map.overlap(FVector(10.));
+		const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
+		std::cout << "Overlap: " << ee.count() << "s" << std::endl;
+
+		/*for(int32 y = 0; y < Rollcage::Y; ++y){
+			for (int32 x = 0; x < Rollcage::X; ++x) {
+				const int32 i = map.idx(x, y);
+				if (i < 0 || i >= res[0].size()) continue;
+				switch (res[0][i]) {
+					case -1:
+					DrawDebugPoint(world, FVector(x, y, map[{x, y}]), 1.f, FColor::Yellow, true);
+					break;
+					case 0:
+					DrawDebugPoint(world, FVector(x, y, map[{x, y}]), 1.f, FColor::Green, true);
+					break;
+					case 1:
+					DrawDebugPoint(world, FVector(x, y, map[{x, y}]), 1.f, FColor::Red, true);
+					break;
+				}
+			}
+		}*/
+
+		for (int32 y = 0; y < Rollcage::Y; ++y) {
+			for (int32 x = 0; x < Rollcage::X; ++x) {
+				const int32 i = map.idx(x, y);
+				if (i < 0 || i >= res[0].size()) continue;
+				const int32 c = std::clamp(res[0][i] / Itensity, 0, 255);
+				DrawDebugPoint(world, FVector(x, y, 0), 1.f, FColor(c, c, c), true);
+			}
+		}
+	}
+
+}//ASpectralTester::TestHeightMap
