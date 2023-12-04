@@ -45,6 +45,9 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = Test)
 	void TestHeightMap();
 
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = Test)
+	void TestFFTW();
+
 	UPROPERTY(EditAnywhere)
 	int32 Itensity = 8;
 

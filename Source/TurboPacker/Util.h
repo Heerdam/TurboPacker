@@ -84,14 +84,56 @@ namespace Util{
 
 	//--------------------------------------
 
+	template <class T>
+	inline FVector c_to_HSL(const std::complex<T>& _c, T MAXVALUE = 10.) {
+		const T H = std::clamp(std::abs(std::fmod(std::arg(_c), 2. * PI)), 0., 2. * PI);
+		const T S = 1.;
+		const T L = std::clamp(std::abs(MAXVALUE * std::atan(std::abs(_c)) / (0.5 * PI)), 0., 1.);
+		return { H, S, L };
+	}//c_to_HSL
+
+	template <class T>
+	inline FVector HSL_to_RGB_deg(const FVector& _hsl) {
+
+		const T H = _hsl[0];
+		const T S = _hsl[1];
+		const T L = _hsl[2];
+
+		assert(0. <= H && H <= 360.);
+		assert(0. <= S && S <= 1.);
+		assert(0. <= L && L <= 1.);
+
+		const T C = (T(1.) - std::abs<T>(T(2.) * L - T(1.))) * S;
+		const T X = C * (T(1.) - std::abs<T>(std::fmod<T>(H / T(60.), T(2.)) - T(1.)));
+		const T m = L - C * T(0.5);
+
+		//std::cout << H << ", " << S << ", " << L << std::endl;
+
+		switch (size_t(H / 60.)) {
+			case 0: return { C + m, X + m, m };
+			case 1: return { X + m, C + m, m };
+			case 2: return { m, C + m, X + m };
+			case 3: return { m, X + m, C + m };
+			case 4: return { X + m, m, C + m };
+			case 5: return { C + m, m, X + m };
+			default: return { 0., 0., 0. };
+		}
+
+	}//HSL_to_RGB_deg
+
+	template <class T>
+	inline FVector HSL_to_RGB_rad(const FVector& _hsl) {
+		return HSL_to_RGB_deg<T>({ _hsl[0] * T(180. / PI), _hsl[1], _hsl[2]});
+	};
+
 	template<class T>
-	[[nodiscard]] uint_fast64_t morton_index(T _x, T _y, T _z) {
+	[[nodiscard]] inline uint_fast64_t morton_index(T _x, T _y, T _z) {
 		const uint_fast64_t out = libmorton::morton3D_64_encode(uint_fast64_t(std::nearbyint(std::abs(_x))), uint_fast64_t(std::nearbyint(std::abs(_y))), uint_fast64_t(std::nearbyint(std::abs(_z))));
 		return (out & 0x1FFFFFFFFFFFFFFF) | uint_fast64_t(!std::signbit(double(_x))) << 63 | uint_fast64_t(!std::signbit(double(_y))) << 62 | uint_fast64_t(!std::signbit(double(_z))) << 61;
 	}//morton_index_3d
 
 	template<class T>
-	[[nodiscard]] uint_fast64_t morton_index(T _x, T _y) {
+	[[nodiscard]] inline uint_fast64_t morton_index(T _x, T _y) {
 		const uint_fast64_t out = libmorton::morton2D_64_encode(uint_fast64_t(std::nearbyint(std::abs(_x))), uint_fast64_t(std::nearbyint(std::abs(_y))));
 		return (out & 0x1FFFFFFFFFFFFFFF) | uint_fast64_t(!std::signbit(double(_x))) << 63 | uint_fast64_t(!std::signbit(double(_y))) << 62;
 	}//morton_index_2d
@@ -261,7 +303,7 @@ namespace Util{
 		HeightMap(const HeightMap&) = delete;
 		//--------------------
 
-		const std::array<std::vector<int32>, 6>&
+		const std::vector<std::complex<T>>&
 			overlap(const FVector& _ext, const int32 _perm = 0x3F) const;
 
 		void push(const FVector& _pos, const FVector& _ext);
@@ -425,12 +467,15 @@ Util::InfBucketGrid<T, VECTOR>::nn(const VECTOR3& _point, float _max_search_dist
 
 template<class T>
 Util::HeightMap<T>::HeightMap(const int32 _x, const int32 _y, const int32 _z) : 
+
+	//n0:y n1: x
 	x_(_x), y_(_y), z_(_z), 
-	px_( std::pow(int32(std::sqrt(T(_x) + 2. * T(_x/2 - 1)) + 1), 2) ),
-	py_( std::pow(int32(std::sqrt(T(_y) + 2. * T(_y/2 - 1)) + 1), 2) ),
+	px_( int32(T(_x) + T(_x)) ),
+	py_( int32(T(_y) + T(_y)) ),
 	ls(px_ * py_)
 {
 	map.resize(_x * _y);
+	std::fill(map.begin(), map.end(), 0);
 
 	//signal
 	f_temp.resize(ls);
@@ -447,19 +492,19 @@ Util::HeightMap<T>::HeightMap(const int32 _x, const int32 _y, const int32 _z) :
 		result[i].resize(_x * _y);
 	//-------------------------
 	if constexpr (std::is_same_v<float, T>) {
-		plan_r2c = rfftwf_plan_dft_r2c_2d(px_, py_, f_temp.data(), reinterpret_cast<fftwf_complex*>(c_temp.data()), FFTW_MEASURE);
-		plan_c2r = fftwf_plan_dft_c2r_2d(px_, py_, reinterpret_cast<fftwf_complex*>(c_temp.data()), f_temp.data(), FFTW_MEASURE);
-		kplan_r2c = fftwf_plan_dft_r2c_2d(x_, y_, fi_temp.data(), reinterpret_cast<fftwf_complex*>(ci_temp.data()), FFTW_MEASURE);
-		kplan_c2r = fftwf_plan_dft_c2r_2d(x_, y_, reinterpret_cast<fftwf_complex*>(ci_temp.data()), fi_temp.data(), FFTW_MEASURE);
+		plan_r2c = fftwf_plan_dft_r2c_2d(py_, px_, f_temp.data(), reinterpret_cast<fftwf_complex*>(c_temp.data()), FFTW_MEASURE);
+		plan_c2r = fftwf_plan_dft_c2r_2d(py_, px_, reinterpret_cast<fftwf_complex*>(c_temp.data()), f_temp.data(), FFTW_MEASURE);
+		kplan_r2c = fftwf_plan_dft_r2c_2d(y_, x_, fi_temp.data(), reinterpret_cast<fftwf_complex*>(ci_temp.data()), FFTW_MEASURE);
+		kplan_c2r = fftwf_plan_dft_c2r_2d(y_, x_, reinterpret_cast<fftwf_complex*>(ci_temp.data()), fi_temp.data(), FFTW_MEASURE);
 		ensure(std::get<0>(plan_r2c));
 		ensure(std::get<0>(plan_c2r));
 		ensure(std::get<0>(kplan_r2c));
 		ensure(std::get<0>(kplan_c2r));
 	} else {
-		plan_r2c = fftw_plan_dft_r2c_2d(px_, py_, f_temp.data(), reinterpret_cast<fftw_complex*>(c_temp.data()), FFTW_MEASURE);
-		plan_c2r = fftw_plan_dft_c2r_2d(px_, py_, reinterpret_cast<fftw_complex*>(c_temp.data()), f_temp.data(), FFTW_MEASURE);
-		kplan_r2c = fftw_plan_dft_r2c_2d(x_, y_, fi_temp.data(), reinterpret_cast<fftw_complex*>(ci_temp.data()), FFTW_MEASURE);
-		kplan_c2r = fftw_plan_dft_c2r_2d(x_, y_, reinterpret_cast<fftw_complex*>(ci_temp.data()), fi_temp.data(), FFTW_MEASURE);
+		plan_r2c = fftw_plan_dft_r2c_2d(py_, px_, f_temp.data(), reinterpret_cast<fftw_complex*>(c_temp.data()), FFTW_MEASURE);
+		plan_c2r = fftw_plan_dft_c2r_2d(py_, px_, reinterpret_cast<fftw_complex*>(c_temp.data()), f_temp.data(), FFTW_MEASURE);
+		kplan_r2c = fftw_plan_dft_r2c_2d(y_, x_, fi_temp.data(), reinterpret_cast<fftw_complex*>(ci_temp.data()), FFTW_MEASURE);
+		kplan_c2r = fftw_plan_dft_c2r_2d(y_, x_, reinterpret_cast<fftw_complex*>(ci_temp.data()), fi_temp.data(), FFTW_MEASURE);
 		ensure(std::get<1>(plan_r2c));
 		ensure(std::get<1>(plan_c2r));
 		ensure(std::get<1>(kplan_r2c));
@@ -483,10 +528,31 @@ Util::HeightMap<T>::~HeightMap() {
 }//Util::HeightMap::~HeightMap
 
 template<class T>
-const std::array<std::vector<int32>, 6>&
+const std::vector<std::complex<T>>&
 Util::HeightMap<T>::overlap(const FVector& _ext, const int32 _perm) const {
 
-	const T SCALE = T(1.) / T(ls);
+	/*
+	 
+		wp = (sqrt(w + (w + 1)) + 1)^2
+		hp = (sqrt(h + (h + 1)) + 1)^2
+
+		signal:
+			in: wp x hp [n_0 x n_1]
+			out: wp x (hp/2 + 1) [n_0 x (n_1/2 + 1)]
+
+		kernel:
+			in: w x h
+			out: w x (h/2 + 1)
+
+		convolution:
+			in: wp x hp [n_0 x n_1]
+
+
+	*/
+
+
+
+	const T SCALE = T(1.) / T(x_ * y_);
 
 	//fft map
 	std::fill(f_temp.begin(), f_temp.end(), 0);
@@ -495,13 +561,34 @@ Util::HeightMap<T>::overlap(const FVector& _ext, const int32 _perm) const {
 			const int32 i1 = kidx(x, y);
 			const int32 i2 = idx(x, y);
 			f_temp[i2] = T(map[i1]);
+			//result[1][i1] = map[i1];
 		}
 	}
-
+	
 	//signal
-	if constexpr (std::is_same_v<float, T>)
-		fftwf_execute_dft_r2c(std::get<0>(plan_r2c), f_temp.data(), reinterpret_cast<fftwf_complex*>(c_temp.data()));
-	else fftw_execute_dft_r2c(std::get<1>(plan_r2c), f_temp.data(), reinterpret_cast<fftw_complex*>(c_temp.data()));
+
+	//if constexpr (std::is_same_v<float, T>)
+	//	fftwf_execute_dft_r2c(std::get<0>(plan_r2c), f_temp.data(), reinterpret_cast<fftwf_complex*>(c_temp.data()));
+	//else fftw_execute_dft_r2c(std::get<1>(plan_r2c), f_temp.data(), reinterpret_cast<fftw_complex*>(c_temp.data()));
+
+	fftw_execute(std::get<1>(plan_r2c));
+
+	/*for (int32 x = 0; x < x_; ++x) {
+		for (int32 y = 0; y < y_; ++y) {
+			const int32 i1 = idx(x, y);
+			const int32 i2 = kidx(x, y);
+			result[1][i2] = int32(f_temp[i1]);
+			result[1][i2] = int32(c_temp[i1].real());
+		}
+	}*/
+
+	//fftw_execute(std::get<1>(plan_c2r));
+	//for (int32 i = 0; i < f_temp.size(); ++i) {
+	//	c_temp[i] = { f_temp[i], 0. };
+		//std::cout << f_temp[i] << std::endl;
+	//}
+
+	return c_temp;
 
 	//permutations
 	if (_perm | 0x1) {
@@ -533,6 +620,9 @@ Util::HeightMap<T>::overlap(const FVector& _ext, const int32 _perm) const {
 			fftwf_execute_dft_r2c(std::get<0>(kplan_r2c), fi_temp.data(), reinterpret_cast<fftwf_complex*>(ci_temp.data()));
 		else fftw_execute_dft_r2c(std::get<1>(kplan_r2c), fi_temp.data(), reinterpret_cast<fftw_complex*>(ci_temp.data()));
 		
+		for (int32 i = 0; i < ci_temp.size(); ++i)
+			si_temp[i] = ci_temp[i];
+
 		for (int32 x = 0; x < x_; ++x) {
 			for (int32 y = 0; y < y_; ++y) {
 				const int32 i1 = kidx(x, y);
@@ -541,41 +631,54 @@ Util::HeightMap<T>::overlap(const FVector& _ext, const int32 _perm) const {
 			}
 		}
 
+		//for (int32 x = 0; x < x_; ++x) {
+		//	for (int32 y = 0; y < y_; ++y) {
+		//		const int32 i1 = kidx(x, y);
+		//		result[1][i1] = int32(ci_temp[i1].real());
+		//	}
+		//}
+
+		//return result;
+
 		if constexpr (std::is_same_v<float, T>)
 			fftwf_execute_dft_c2r(std::get<0>(plan_c2r), reinterpret_cast<fftwf_complex*>(si_temp.data()), fi_temp.data());
 		else fftw_execute_dft_c2r(std::get<1>(plan_c2r), reinterpret_cast<fftw_complex*>(si_temp.data()), fi_temp.data());
 
-		std::fill(result[0].begin(), result[0].end(), 0);
+		std::fill(c_temp.begin(), c_temp.end(), 0);
 
 		for (int32 x = 0; x < x_; ++x) {
 			for (int32 y = 0; y < y_; ++y) {
 				const int32 i1 = kidx(x, y);
 				const int32 i2 = idx(x, y);
-
+				if (i2 < 0 || i2 >= c_temp.size()) continue;
 				const int32 expec = int32(std::round(_ext[0]) + 1) * int32(std::round(_ext[0]) + 1) * map[i1];
 				const int32 r = int32(std::abs(std::round(fi_temp[i2] * SCALE)));
-				result[0][i1] = r > expec ? -1 : r < map[i1] ? 1 : 0;
+				//result[0][i1] = r > expec ? -1 : r < expec ? 1 : 0;
+				//result[1][i1] = r;
+				c_temp[i2] = { std::abs(std::round(fi_temp[i2] * SCALE)) , 0. };
 			}
 		}
 
 	}
 
-	/*if (_perm | 0x2) {
-	}
-	
-	if (_perm | 0x8) {
-	}
+	return c_temp;
 
-	if (_perm | 0x10) {
-	}
+	///*if (_perm | 0x2) {
+	//}
+	//
+	//if (_perm | 0x8) {
+	//}
 
-	if (_perm | 0x20) {
-	}
+	//if (_perm | 0x10) {
+	//}
 
-	if (_perm | 0x40) {
-	}*/
+	//if (_perm | 0x20) {
+	//}
 
-	return result;
+	//if (_perm | 0x40) {
+	//}*/
+
+	//return result;
 	
 }//Util::HeightMap::overlap
 
@@ -592,8 +695,7 @@ void Util::HeightMap<T>::push(const FVector& _pos, const FVector& _ext) {
 
 	for (int32 x = minX; x <= maxX; ++x) {
 		for (int32 y = minY; y <= maxY; ++y) {	
-			const int32 i = idx(x, y);
-			if (i < 0 || i >= map.size()) continue;//TODO height
+			const int32 i = kidx(x, y);
 			map[i] = maxZ;
 		}
 	}
@@ -608,8 +710,8 @@ void Util::HeightMap<T>::print_size_in_bytes() const {
 
 template<class T>
 int32 Util::HeightMap<T>::idx(const int32 _x, const int32 _y) const {
-	const int32 ox = (px_ - x_) / 2;
-	const int32 oy = (py_ - y_) / 2;
+	const int32 ox = x_ / 2;
+	const int32 oy = y_ / 2;
 	//const int32 out = (_x + ox) + (_y + oy) * px_;
 	const int32 out = (_y + oy) + (_x + ox) * py_;
 	if (out < 0 || out >= f_temp.size()) {
@@ -621,7 +723,7 @@ int32 Util::HeightMap<T>::idx(const int32 _x, const int32 _y) const {
 
 template<class T>
 int32 Util::HeightMap<T>::kidx(const int32 _x, const int32 _y) const {
-	const int32 out = (_y) + (_x) * y_;
+	const int32 out = (_y) + (_x)*y_;
 	if (out < 0 || out >= map.size()) {
 		std::cout << "kidx: " << out << std::endl;
 		return 0;
