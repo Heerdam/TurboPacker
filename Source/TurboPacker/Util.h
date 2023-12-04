@@ -24,6 +24,7 @@
 #include <concepts>
 #include <exception>
 #include <chrono>
+#include <ranges>
 
 #include <libmorton/morton.h>
 #include <tsl/robin_map.h>
@@ -262,26 +263,27 @@ namespace Util{
 
 	public:
 		//real size
-		const int32 x_;
-		const int32 y_;
-		const int32 z_;
+		const int32 n0_;
+		const int32 n1_;
+		const int32 n1_c_;
+		const int32 h_;
 
 		//padded size
-		const int32 px_;
-		const int32 py_;
-		const int32 ls;
+		const int32 p_n0_;
+		const int32 p_n1_;
+		const int32 p_n1_c_;
 
 	private:
 		//map
 		std::vector<int32> map;
 
 		//signal
-		mutable std::vector<T> f_temp;
-		mutable std::vector<std::complex<T>> c_temp;
+		double* signal_r = nullptr;
+		fftw_complex* signal_c = nullptr;
 
 		//kernel
-		mutable std::vector<T> fi_temp;
-		mutable std::vector<std::complex<T>> ci_temp;
+		double* kernel_r = nullptr;
+		fftw_complex* kernel_c = nullptr;
 
 		//temp
 		mutable std::vector<std::complex<T>> si_temp;
@@ -297,24 +299,23 @@ namespace Util{
 		std::variant<fftwf_plan, fftw_plan> kplan_c2r;
 
 	public:
-		HeightMap(const int32 _x, const int32 _y, const int32 _z);
+		HeightMap(const int32 _n0, const int32 _n1, const int32 _y);
 		~HeightMap();
 		HeightMap(HeightMap&&) = default;
 		HeightMap(const HeightMap&) = delete;
 		//--------------------
 
-		const std::vector<std::complex<T>>&
-			overlap(const FVector& _ext, const int32 _perm = 0x3F) const;
+		auto overlap(const FVector& _ext, const int32 _perm = 0x3F) const;
 
 		void push(const FVector& _pos, const FVector& _ext);
 
 		//--------------------
 		// 
 		//signal index
-		int32 idx(const int32 _x, const int32 _y) const;
+		int32 idx(const int32 _n0, const int32 _n1) const;
 
 		//kernel index
-		int32 kidx(const int32 _x, const int32 _y) const;
+		int32 kidx(const int32 _n0, const int32 _n1) const;
 
 		//--------------------
 
@@ -466,32 +467,27 @@ Util::InfBucketGrid<T, VECTOR>::nn(const VECTOR3& _point, float _max_search_dist
 //pow(sqrt((w + 2 * (k/2 - 1)))
 
 template<class T>
-Util::HeightMap<T>::HeightMap(const int32 _x, const int32 _y, const int32 _z) : 
-
-	//n0:y n1: x
-	x_(_x), y_(_y), z_(_z), 
-	px_( int32(T(_x) + T(_x)) ),
-	py_( int32(T(_y) + T(_y)) ),
-	ls(px_ * py_)
+Util::HeightMap<T>::HeightMap(const int32 _n0, const int32 _n1, const int32 _h) : 
+	n0_(_n0), n1_(_n1), n1_c_(_n1 / 2 + 1), h_(_h),
+	p_n0_(2 * _n0 - 1), p_n1_(2 * _n1 - 1), p_n1_c_(p_n1_ / 2 + 1)
 {
-	map.resize(_x * _y);
+	map.resize(_n0 * _n1);
 	std::fill(map.begin(), map.end(), 0);
 
 	//signal
-	f_temp.resize(ls);
-	c_temp.resize(ls);
+	signal_r = fftw_alloc_real(p_n0_ * p_n1_);
+	signal_c = fftw_alloc_complex(p_n0_ * p_n1_c_);
 
 	//kernel
-	fi_temp.resize(_x * _y);
-	ci_temp.resize(_x * _y);
-	si_temp.resize(ls);
+	kernel_r = fftw_alloc_real(p_n0_ * p_n1_);
+	kernel_c = fftw_alloc_complex(p_n0_ * p_n1_c_);
 
 	//std::cout << px_ << "x" << py_ << std::endl;
 
-	for(int32 i = 0; i < 6; ++i)
-		result[i].resize(_x * _y);
+	//for(int32 i = 0; i < 6; ++i)
+		//result[i].resize(_x * _y);
 	//-------------------------
-	if constexpr (std::is_same_v<float, T>) {
+	/*if constexpr (std::is_same_v<float, T>) {
 		plan_r2c = fftwf_plan_dft_r2c_2d(py_, px_, f_temp.data(), reinterpret_cast<fftwf_complex*>(c_temp.data()), FFTW_MEASURE);
 		plan_c2r = fftwf_plan_dft_c2r_2d(py_, px_, reinterpret_cast<fftwf_complex*>(c_temp.data()), f_temp.data(), FFTW_MEASURE);
 		kplan_r2c = fftwf_plan_dft_r2c_2d(y_, x_, fi_temp.data(), reinterpret_cast<fftwf_complex*>(ci_temp.data()), FFTW_MEASURE);
@@ -500,11 +496,12 @@ Util::HeightMap<T>::HeightMap(const int32 _x, const int32 _y, const int32 _z) :
 		ensure(std::get<0>(plan_c2r));
 		ensure(std::get<0>(kplan_r2c));
 		ensure(std::get<0>(kplan_c2r));
-	} else {
-		plan_r2c = fftw_plan_dft_r2c_2d(py_, px_, f_temp.data(), reinterpret_cast<fftw_complex*>(c_temp.data()), FFTW_MEASURE);
-		plan_c2r = fftw_plan_dft_c2r_2d(py_, px_, reinterpret_cast<fftw_complex*>(c_temp.data()), f_temp.data(), FFTW_MEASURE);
-		kplan_r2c = fftw_plan_dft_r2c_2d(y_, x_, fi_temp.data(), reinterpret_cast<fftw_complex*>(ci_temp.data()), FFTW_MEASURE);
-		kplan_c2r = fftw_plan_dft_c2r_2d(y_, x_, reinterpret_cast<fftw_complex*>(ci_temp.data()), fi_temp.data(), FFTW_MEASURE);
+	} else */
+	{
+		plan_r2c = fftw_plan_dft_r2c_2d(p_n0_, p_n1_, signal_r, signal_c, FFTW_MEASURE);
+		plan_c2r = fftw_plan_dft_c2r_2d(p_n0_, p_n1_, signal_c, signal_r, FFTW_MEASURE);
+		kplan_r2c = fftw_plan_dft_r2c_2d(p_n0_, p_n1_, kernel_r, kernel_c, FFTW_MEASURE);
+		kplan_c2r = fftw_plan_dft_c2r_2d(p_n0_, p_n1_, kernel_c, kernel_r, FFTW_MEASURE);
 		ensure(std::get<1>(plan_r2c));
 		ensure(std::get<1>(plan_c2r));
 		ensure(std::get<1>(kplan_r2c));
@@ -514,22 +511,26 @@ Util::HeightMap<T>::HeightMap(const int32 _x, const int32 _y, const int32 _z) :
 
 template<class T>
 Util::HeightMap<T>::~HeightMap() {
-	if constexpr (std::is_same_v<float, T>) {
+	/*if constexpr (std::is_same_v<float, T>) {
 		fftwf_destroy_plan(std::get<0>(plan_r2c));
 		fftwf_destroy_plan(std::get<0>(plan_c2r));
 		fftwf_destroy_plan(std::get<0>(kplan_r2c));
 		fftwf_destroy_plan(std::get<0>(kplan_c2r));
-	} else {
+	} else*/ 
+	{
 		fftw_destroy_plan(std::get<1>(plan_r2c));
 		fftw_destroy_plan(std::get<1>(plan_c2r));
 		fftw_destroy_plan(std::get<1>(kplan_r2c));
 		fftw_destroy_plan(std::get<1>(kplan_c2r));
+		fftw_free(signal_r);
+		fftw_free(signal_c);
+		fftw_free(kernel_r);
+		fftw_free(kernel_c);
 	}
 }//Util::HeightMap::~HeightMap
 
 template<class T>
-const std::vector<std::complex<T>>&
-Util::HeightMap<T>::overlap(const FVector& _ext, const int32 _perm) const {
+auto Util::HeightMap<T>::overlap(const FVector& _ext, const int32 _perm) const {
 
 	/*
 	 
@@ -550,28 +551,90 @@ Util::HeightMap<T>::overlap(const FVector& _ext, const int32 _perm) const {
 
 	*/
 
+	const int32 o1 = n1_ / 2;
+	const int32 o1_c = n1_c_ / 2;
+	const int32 o0 = n0_ / 2;
 
+	const T SCALE = T(1.) / T(n0_ * n1_);
 
-	const T SCALE = T(1.) / T(x_ * y_);
+	for (int32 i = 0; i < p_n0_ * p_n1_; ++i)
+		signal_r[i] = 0.;
 
 	//fft map
-	std::fill(f_temp.begin(), f_temp.end(), 0);
-	for (int32 x = 0; x < x_; ++x) {
-		for (int32 y = 0; y < y_; ++y) {
-			const int32 i1 = kidx(x, y);
-			const int32 i2 = idx(x, y);
-			f_temp[i2] = T(map[i1]);
+	for (int32 n1 = 0; n1 < n1_; ++n1) {
+		for (int32 n0 = 0; n0 < n0_; ++n0) {
+			const int32 i1 = n1 + n0 * n1_;
+			const int32 i2 = (n1 + o1) + (n0 + o0) * p_n1_;
+			signal_r[i2] = T(map[i1]);
 			//result[1][i1] = map[i1];
 		}
 	}
-	
-	//signal
-
-	//if constexpr (std::is_same_v<float, T>)
-	//	fftwf_execute_dft_r2c(std::get<0>(plan_r2c), f_temp.data(), reinterpret_cast<fftwf_complex*>(c_temp.data()));
-	//else fftw_execute_dft_r2c(std::get<1>(plan_r2c), f_temp.data(), reinterpret_cast<fftw_complex*>(c_temp.data()));
 
 	fftw_execute(std::get<1>(plan_r2c));
+
+	for (int32 i = 0; i < p_n0_ * p_n1_; ++i)
+		kernel_r[i] = 0.;
+
+	const int32 w = int32(std::round(_ext[0]));
+	const int32 h = int32(std::round(_ext[1]));
+	const int32 cw = int32(p_n0_ / 2);
+	const int32 ch = int32(p_n1_ / 2);
+
+	//center kernel
+	/*for (int32 n1 = ch - h; n1 <= ch + h; ++n1) {	
+		for (int32 n0 = cw - w; n0 <= cw + w; ++n0) {
+			const int32 i = n1 + n0 * p_n1_;
+			kernel_r[i] = 1.f;
+		}
+	}*/
+
+	for (int32 n0 = 0; n0 <= h; ++n0) {
+		for (int32 n1 = 0; n1 <= w; ++n1) {
+			const int32 i = n1 + n0 * p_n1_;
+			kernel_r[i] = 1.f;
+		}
+	}
+
+	fftw_execute(std::get<1>(kplan_r2c));
+
+	if constexpr (true) {
+		for (int32 n0 = 0; n0 < p_n0_; ++n0) {
+			for (int32 n1 = 0; n1 < p_n1_c_; ++n1) {
+				const int32 i = n1 + n0 * p_n1_c_;
+				const std::complex<T> c1(signal_c[i][0], signal_c[i][1]);
+				const std::complex<T> c2(kernel_c[i][0], kernel_c[i][1]);
+				const auto r = c1 * c2;
+				signal_c[i][0] = r.real();
+				signal_c[i][1] = r.imag();
+			}
+		}
+	}
+
+	fftw_execute(std::get<1>(plan_c2r));
+
+	return signal_r;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	//signal
+
+//if constexpr (std::is_same_v<float, T>)
+//	fftwf_execute_dft_r2c(std::get<0>(plan_r2c), f_temp.data(), reinterpret_cast<fftwf_complex*>(c_temp.data()));
+//else fftw_execute_dft_r2c(std::get<1>(plan_r2c), f_temp.data(), reinterpret_cast<fftw_complex*>(c_temp.data()));
+
+
 
 	/*for (int32 x = 0; x < x_; ++x) {
 		for (int32 y = 0; y < y_; ++y) {
@@ -588,80 +651,80 @@ Util::HeightMap<T>::overlap(const FVector& _ext, const int32 _perm) const {
 		//std::cout << f_temp[i] << std::endl;
 	//}
 
-	return c_temp;
+	
 
-	//permutations
-	if (_perm | 0x1) {
-		std::fill(fi_temp.begin(), fi_temp.end(), 0.f);
+	////permutations
+	//if (_perm | 0x1) {
+	//	std::fill(fi_temp.begin(), fi_temp.end(), 0.f);
 
-		const int32 w = int32(std::round(_ext[0])) / 2;
-		const int32 h = int32(std::round(_ext[1])) / 2;
-		const int32 cw = int32(x_ / 2);
-		const int32 ch = int32(y_ / 2);
+	//	const int32 w = int32(std::round(_ext[0])) / 2;
+	//	const int32 h = int32(std::round(_ext[1])) / 2;
+	//	const int32 cw = int32(x_ / 2);
+	//	const int32 ch = int32(y_ / 2);
 
-		//center kernel
-		for (int32 x = cw - w; x <= cw + w; ++x) {
-			for (int32 y = ch - h; y <= ch + h; ++y) {	
-				const int32 i = kidx(x, y);
-				fi_temp[i] = 1.f;
-			}
-		}
-		/*
-		for (int32 y = 0; y <= std::round(_ext[1]); ++y) {
-			for (int32 x = 0; x <= std::round(_ext[0]); ++x) {
-				const int32 i = idx(x, y);
-				if (i < 0 || i >= map.size()) continue;
-				fi_temp[i] = 1.f;
-			}
-		}
-		*/
+	//	//center kernel
+	//	for (int32 x = cw - w; x <= cw + w; ++x) {
+	//		for (int32 y = ch - h; y <= ch + h; ++y) {	
+	//			const int32 i = kidx(x, y);
+	//			fi_temp[i] = 1.f;
+	//		}
+	//	}
+	//	/*
+	//	for (int32 y = 0; y <= std::round(_ext[1]); ++y) {
+	//		for (int32 x = 0; x <= std::round(_ext[0]); ++x) {
+	//			const int32 i = idx(x, y);
+	//			if (i < 0 || i >= map.size()) continue;
+	//			fi_temp[i] = 1.f;
+	//		}
+	//	}
+	//	*/
 
-		if constexpr (std::is_same_v<float, T>)
-			fftwf_execute_dft_r2c(std::get<0>(kplan_r2c), fi_temp.data(), reinterpret_cast<fftwf_complex*>(ci_temp.data()));
-		else fftw_execute_dft_r2c(std::get<1>(kplan_r2c), fi_temp.data(), reinterpret_cast<fftw_complex*>(ci_temp.data()));
-		
-		for (int32 i = 0; i < ci_temp.size(); ++i)
-			si_temp[i] = ci_temp[i];
+	//	if constexpr (std::is_same_v<float, T>)
+	//		fftwf_execute_dft_r2c(std::get<0>(kplan_r2c), fi_temp.data(), reinterpret_cast<fftwf_complex*>(ci_temp.data()));
+	//	else fftw_execute_dft_r2c(std::get<1>(kplan_r2c), fi_temp.data(), reinterpret_cast<fftw_complex*>(ci_temp.data()));
+	//	
+	//	for (int32 i = 0; i < ci_temp.size(); ++i)
+	//		si_temp[i] = ci_temp[i];
 
-		for (int32 x = 0; x < x_; ++x) {
-			for (int32 y = 0; y < y_; ++y) {
-				const int32 i1 = kidx(x, y);
-				const int32 i2 = idx(x, y);
-				si_temp[i2] = c_temp[i2] * ci_temp[i1];
-			}
-		}
+	//	for (int32 x = 0; x < x_; ++x) {
+	//		for (int32 y = 0; y < y_; ++y) {
+	//			const int32 i1 = kidx(x, y);
+	//			const int32 i2 = idx(x, y);
+	//			si_temp[i2] = c_temp[i2] * ci_temp[i1];
+	//		}
+	//	}
 
-		//for (int32 x = 0; x < x_; ++x) {
-		//	for (int32 y = 0; y < y_; ++y) {
-		//		const int32 i1 = kidx(x, y);
-		//		result[1][i1] = int32(ci_temp[i1].real());
-		//	}
-		//}
+	//	//for (int32 x = 0; x < x_; ++x) {
+	//	//	for (int32 y = 0; y < y_; ++y) {
+	//	//		const int32 i1 = kidx(x, y);
+	//	//		result[1][i1] = int32(ci_temp[i1].real());
+	//	//	}
+	//	//}
 
-		//return result;
+	//	//return result;
 
-		if constexpr (std::is_same_v<float, T>)
-			fftwf_execute_dft_c2r(std::get<0>(plan_c2r), reinterpret_cast<fftwf_complex*>(si_temp.data()), fi_temp.data());
-		else fftw_execute_dft_c2r(std::get<1>(plan_c2r), reinterpret_cast<fftw_complex*>(si_temp.data()), fi_temp.data());
+	//	if constexpr (std::is_same_v<float, T>)
+	//		fftwf_execute_dft_c2r(std::get<0>(plan_c2r), reinterpret_cast<fftwf_complex*>(si_temp.data()), fi_temp.data());
+	//	else fftw_execute_dft_c2r(std::get<1>(plan_c2r), reinterpret_cast<fftw_complex*>(si_temp.data()), fi_temp.data());
 
-		std::fill(c_temp.begin(), c_temp.end(), 0);
+	//	std::fill(c_temp.begin(), c_temp.end(), 0);
 
-		for (int32 x = 0; x < x_; ++x) {
-			for (int32 y = 0; y < y_; ++y) {
-				const int32 i1 = kidx(x, y);
-				const int32 i2 = idx(x, y);
-				if (i2 < 0 || i2 >= c_temp.size()) continue;
-				const int32 expec = int32(std::round(_ext[0]) + 1) * int32(std::round(_ext[0]) + 1) * map[i1];
-				const int32 r = int32(std::abs(std::round(fi_temp[i2] * SCALE)));
-				//result[0][i1] = r > expec ? -1 : r < expec ? 1 : 0;
-				//result[1][i1] = r;
-				c_temp[i2] = { std::abs(std::round(fi_temp[i2] * SCALE)) , 0. };
-			}
-		}
+	//	for (int32 x = 0; x < x_; ++x) {
+	//		for (int32 y = 0; y < y_; ++y) {
+	//			const int32 i1 = kidx(x, y);
+	//			const int32 i2 = idx(x, y);
+	//			if (i2 < 0 || i2 >= c_temp.size()) continue;
+	//			const int32 expec = int32(std::round(_ext[0]) + 1) * int32(std::round(_ext[0]) + 1) * map[i1];
+	//			const int32 r = int32(std::abs(std::round(fi_temp[i2] * SCALE)));
+	//			//result[0][i1] = r > expec ? -1 : r < expec ? 1 : 0;
+	//			//result[1][i1] = r;
+	//			c_temp[i2] = { std::abs(std::round(fi_temp[i2] * SCALE)) , 0. };
+	//		}
+	//	}
 
-	}
+	//}
 
-	return c_temp;
+	//return c_temp;
 
 	///*if (_perm | 0x2) {
 	//}
@@ -693,9 +756,9 @@ void Util::HeightMap<T>::push(const FVector& _pos, const FVector& _ext) {
 
 	const int32 maxZ = int32(_pos[2] + _ext[2]);
 
-	for (int32 x = minX; x <= maxX; ++x) {
-		for (int32 y = minY; y <= maxY; ++y) {	
-			const int32 i = kidx(x, y);
+	for (int32 n0 = minY; n0 < maxY; ++n0) {
+		for (int32 n1 = minX; n1 < maxX; ++n1) {
+			const int32 i = n1 + n0 * n1_;
 			map[i] = maxZ;
 		}
 	}
@@ -704,26 +767,26 @@ void Util::HeightMap<T>::push(const FVector& _pos, const FVector& _ext) {
 
 template<class T>
 void Util::HeightMap<T>::print_size_in_bytes() const {
-	std::cout << "Total size: " << double(map.size() * sizeof(int32) + f_temp.size() * sizeof(T) + c_temp.size() * sizeof(std::complex<T>) +
-		fi_temp.size() * sizeof(T) + ci_temp.size() * sizeof(T) + 6 * result[0].size() * sizeof(int32)) / 1000000. << "Mb" << std::endl;
+	//std::cout << "Total size: " << double(map.size() * sizeof(int32) + f_temp.size() * sizeof(T) + c_temp.size() * sizeof(std::complex<T>) +
+	//	fi_temp.size() * sizeof(T) + ci_temp.size() * sizeof(T) + 6 * result[0].size() * sizeof(int32)) / 1000000. << "Mb" << std::endl;
 }//Util::HeightMap::print_size_in_bytes
 
 template<class T>
-int32 Util::HeightMap<T>::idx(const int32 _x, const int32 _y) const {
-	const int32 ox = x_ / 2;
-	const int32 oy = y_ / 2;
-	//const int32 out = (_x + ox) + (_y + oy) * px_;
-	const int32 out = (_y + oy) + (_x + ox) * py_;
-	if (out < 0 || out >= f_temp.size()) {
+int32 Util::HeightMap<T>::idx(const int32 _n0, const int32 _n1) const {
+	const int32 o1 = p_n1_ / 2;
+	const int32 o0 = p_n0_ / 2;
+
+	const int32 out = (_n1 + o1) + (_n0 + o0) * p_n1_;
+	/*if (out < 0 || out >= f_temp.size()) {
 		std::cout << "idx: " << out << std::endl;
 		return 0;
-	}
+	}*/
 	return out;
 }//Util::HeightMap::idx
 
 template<class T>
-int32 Util::HeightMap<T>::kidx(const int32 _x, const int32 _y) const {
-	const int32 out = (_y) + (_x)*y_;
+int32 Util::HeightMap<T>::kidx(const int32 _n0, const int32 _n1) const {
+	const int32 out = _n1 + _n0 * n1_;
 	if (out < 0 || out >= map.size()) {
 		std::cout << "kidx: " << out << std::endl;
 		return 0;

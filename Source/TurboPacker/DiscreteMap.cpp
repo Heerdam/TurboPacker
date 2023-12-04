@@ -65,19 +65,19 @@ void ASpectralTester::TestHeightMap() {
 
 	FlushPersistentDebugLines(world);
 
-	const FBox bounds(FVector(0.f), FVector(120, 80, 1700));
+	//const FBox bounds(FVector(0.f), FVector(100, 100, 1));
 	//DrawDebugBox(world, bounds.GetCenter(), bounds.GetExtent(), FColor::Blue, true);
 
 	//1200*800*1700
 	using Rollcage = HeightMap<double>;
-	const auto start1 = std::chrono::high_resolution_clock::now();
-	Rollcage map(120, 80, 1700);
-	const std::chrono::duration<double> ee1 = std::chrono::high_resolution_clock::now() - start1;
-	std::cout << "Plan: " << ee1.count() << "s" << std::endl;
+	//const auto start1 = std::chrono::high_resolution_clock::now();
+	Rollcage map(100, 100, 1);
+	//const std::chrono::duration<double> ee1 = std::chrono::high_resolution_clock::now() - start1;
+	//std::cout << "Plan: " << ee1.count() << "s" << std::endl;
 
-	map.print_size_in_bytes();
+	//map.print_size_in_bytes();
 
-	const FBox p(FVector(40, 20, 0), FVector(80, 60, 10));
+	const FBox p(FVector(40, 40, 0), FVector(60, 60, 1));
 	//DrawDebugBox(world, p.GetCenter() + FVector(5, 5, 0), p.GetExtent(), FColor::Blue, true);
 
 	map.push(p.GetCenter(), p.GetExtent());
@@ -101,34 +101,39 @@ void ASpectralTester::TestHeightMap() {
 		const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
 		std::cout << "Overlap: " << ee.count() << "s" << std::endl;
 
-		double max = -std::numeric_limits<double>::infinity();
-		for (int32 i = 0; i < res.size(); ++i) {
-			//std::cout << std::abs(res[1][i]) << std::endl;
-			max = std::max(max, res[i].real());
+		double max = 0;
+		for (int32 i = 0; i < map.p_n0_ * map.p_n1_; ++i) {
+			//max = std::max<double>(max, std::abs(1. - std::abs(std::log(std::abs(1. + res[i])))));
+			max = std::max<double>(max, std::abs(res[i]));
 		}
 
 		std::cout << max << std::endl;
 
-		std::vector<unsigned char> img;
-		for (int32 y = 0; y < map.py_; ++y) {
-			for (int32 x = 0; x < map.px_; ++x) {
-				const int32 i = y + map.py_ * x;
-				const auto c1 = c_to_HSL<double>(res[i], max);
-				const auto col = FColor(int32(c1[0] / (2 * PI) * 255.));
-				//const auto col = FColor(255 * int32(res[i].real() / max));
-				img.push_back(col.R);
-				img.push_back(col.G);
-				img.push_back(col.B);
+		if constexpr (true){
+			std::vector<unsigned char> img;
+			for (int32 i = 0; i < map.p_n0_ * map.p_n1_; ++i) {
+				
+				//const std::complex<double> c(res[i], 0);
+				//std::cout << c << std::endl;
+				//const FVector hsl = c_to_HSL<double>(c, 10);
+				//const FVector col = HSL_to_RGB_rad<double>(hsl);
+				//const double mag =  std::abs(1. - std::abs(std::log(std::abs(1. + res[i]))) / max);
+				const double mag = std::abs(res[i]) / max;
+				//std::cout << mag << std::endl;
+
+				img.push_back(255 - (unsigned char)(mag * 255.));
+				img.push_back(255 - (unsigned char)(mag * 255.));
+				img.push_back(255 - (unsigned char)(mag * 255.));
+
+
+				//img.push_back(255 - int32(col[0] * 255.));
+				//img.push_back(255 - int32(col[1] * 255.));
+				//img.push_back(255 - int32(col[2] * 255.));
 				img.push_back(255);
-				//const auto c = HSL_to_RGB_rad<double>(c1);
-				//std::cout << c1[0] << ", " << c1[1] << ", " << c1[2] << std::endl;
-				//DrawDebugPoint(world, FVector(x, y, 0)*0.1, 2.5f, FColor(int32(c1[0] / (2*PI) * 255.)), true);
-				//DrawDebugBox(world, FVector(x*10, y*10, 0), FVector(5., 5., 0.1), FColor(int32(c1[0] / (2 * PI) * 255.)), true);
 			}
+
+			lodepng::encode("C:\\Users\\Heerdam\\Desktop\\Coding\\ue5\\TurboPacker\\test_r.png", img.data(), map.p_n1_, map.p_n0_);
 		}
-
-
-		lodepng::encode("C:\\Users\\Heerdam\\Desktop\\Coding\\ue5\\TurboPacker\\test.png", img.data(), map.px_, map.py_);
 
 		//const double frac = 1. / 1210. * 255.;
 
@@ -151,22 +156,6 @@ void ASpectralTester::TestHeightMap() {
 		//	}
 		//}
 
-		
-
-		//std::cout << max << std::endl;
-
-		//for (int32 y = 0; y < map.y_; ++y) {
-		//	for (int32 x = 0; x < map.x_; ++x) {
-		//		const int32 i = map.kidx(x, y);
-		//		//std::cout << res[1][i] << std::endl;
-
-		//		//const int32 c = std::clamp(int32(double(std::abs(res[1][i])) / (double)(max / Itensity) * 255.), 0, 255);
-		//		const int32 c = int32(((double(res[1][i]) - std::log(1)) * (double(max) - 1.)) / (std::log(max) - std::log(1)));
-		//		DrawDebugPoint(world, FVector(x, y, 0), 1.5f, FColor(c, c, c), true);
-		//		
-		//		//DrawDebugPoint(world, FVector(x, y, 0), 1.f, FColor(255*res[1][i], 0, 0), true);
-		//	}
-		//}
 	}
 
 }//ASpectralTester::TestHeightMap
@@ -235,7 +224,7 @@ void ASpectralTester::TestFFTW() {
 			img.push_back(255);
 		}
 
-		lodepng::encode("C:\\Users\\Heerdam\\Desktop\\Coding\\ue5\\TurboPacker\\test_r.png", img.data(), n0, n1);
+		lodepng::encode("C:\\Users\\Heerdam\\Desktop\\Coding\\ue5\\TurboPacker\\test_r_ref.png", img.data(), n0, n1);
 	}
 	{
 		std::vector<unsigned char> img;
@@ -253,7 +242,7 @@ void ASpectralTester::TestFFTW() {
 			img.push_back(255);
 		}
 
-		lodepng::encode("C:\\Users\\Heerdam\\Desktop\\Coding\\ue5\\TurboPacker\\test_c.png", img.data(), n1_cplx, n0);
+		lodepng::encode("C:\\Users\\Heerdam\\Desktop\\Coding\\ue5\\TurboPacker\\test_c_ref.png", img.data(), n1_cplx, n0);
 	}
 
 	fftw_destroy_plan(p);
