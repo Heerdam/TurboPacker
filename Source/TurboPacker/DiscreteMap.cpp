@@ -5,6 +5,226 @@
 #include <unsupported/Eigen/FFT>
 #include <math.h>
 
+FTransform TurboPacker::Detail::make_transform(
+	EAxisPerm _perm,
+	const FBox& _target,
+	const FVector& _pivot_offset,
+	const FVector& _relative_offset
+) {
+	const FVector& ctr = _target.GetCenter();
+
+	switch (_perm) {
+		case EAxisPerm::Z_XY_0:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(0., 0., 0)));
+			tr.SetLocation(ctr - _pivot_offset - _relative_offset);
+			return tr;
+		}
+		case EAxisPerm::Z_XY_1:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(0., 0., 90.)));
+			tr.SetLocation(ctr + FVector(-_pivot_offset.Y, _pivot_offset.X, -_pivot_offset.Z) + FVector(_relative_offset.Y, -_relative_offset.X, -_relative_offset.Z));
+			return tr;
+		}
+		case EAxisPerm::Z_XY_2:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(0., 0., 2 * 90.)));
+			tr.SetLocation(ctr + FVector(_pivot_offset.X, _pivot_offset.Y, -_pivot_offset.Z) + FVector(_relative_offset.X, _relative_offset.Y, -_relative_offset.Z));
+			return tr;
+		}
+		case EAxisPerm::Z_XY_3:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(0., 0., 3 * 90.)));
+			tr.SetLocation(ctr + FVector(_pivot_offset.Y, _pivot_offset.X, -_pivot_offset.Z) - FVector(_relative_offset.Y, -_relative_offset.X, _relative_offset.Z));
+			return tr;
+		}
+		//---------------------
+		case EAxisPerm::Y_XZ_0:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(90., 0., 0.)));
+			tr.SetLocation(ctr + FVector(-_pivot_offset.X, -_pivot_offset.Z, _pivot_offset.Y) + FVector(-_relative_offset.X, -_relative_offset.Z, _relative_offset.Y));
+			return tr;
+		}
+		case EAxisPerm::Y_XZ_1:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(90., 0., 90.)));
+			tr.SetLocation(ctr + FVector(_pivot_offset.Z, -_pivot_offset.X, _pivot_offset.Y) + FVector(_relative_offset.Z, -_relative_offset.X, _relative_offset.Y));
+			return tr;
+		}
+		case EAxisPerm::Y_XZ_2:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(90., 0., 2 * 90.)));
+			tr.SetLocation(ctr + FVector(_pivot_offset.X, _pivot_offset.Z, _pivot_offset.Y) + FVector(_relative_offset.X, _relative_offset.Z, _relative_offset.Y));
+			return tr;
+		}
+		case EAxisPerm::Y_XZ_3:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(90., 0., 3 * 90.)));
+			tr.SetLocation(ctr + FVector(-_pivot_offset.Z, _pivot_offset.X, _pivot_offset.Y) + FVector(-_relative_offset.Z, _relative_offset.X, _relative_offset.Y));
+			return tr;
+		}
+		//---------------------
+		case EAxisPerm::X_YZ_0:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(90., 90., 0.)));
+			tr.SetLocation(ctr + FVector(-_pivot_offset.Y, -_pivot_offset.Z, -_pivot_offset.X) + FVector(-_relative_offset.Y, -_relative_offset.Z, -_relative_offset.X));
+			return tr;
+		}
+		case EAxisPerm::X_YZ_1:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(2 * 90., 90., 0.)));
+			tr.SetLocation(ctr + FVector(-_pivot_offset.Z, _pivot_offset.Y, -_pivot_offset.X) + FVector(-_relative_offset.Z, _relative_offset.Y, -_relative_offset.X));
+			return tr;
+		}
+		case EAxisPerm::X_YZ_2:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(3 * 90., 90., 0.)));
+			tr.SetLocation(ctr + FVector(_pivot_offset.Y, _pivot_offset.Z, -_pivot_offset.X) + FVector(_relative_offset.Y, _relative_offset.Z, -_relative_offset.X));
+			return tr;
+		}
+		case EAxisPerm::X_YZ_3:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(0., 90., 0.)));
+			tr.SetLocation(ctr + FVector(_pivot_offset.Z, -_pivot_offset.Y, -_pivot_offset.X) + FVector(_relative_offset.Z, -_relative_offset.Y, -_relative_offset.X));
+			return tr;
+		}
+		//-------------------------
+		//-------------------------
+		case EAxisPerm::Z_n_XY_0:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(0., 180., 0)));
+			tr.SetLocation(ctr - FVector(-_pivot_offset.X, _pivot_offset.Y, -_pivot_offset.Z) + FVector(_relative_offset.X, -_relative_offset.Y, _relative_offset.Z));
+			return tr;
+		}
+		case EAxisPerm::Z_n_XY_1:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(0., 180., 90.)));
+			tr.SetLocation(ctr + FVector(-_pivot_offset.Y, _pivot_offset.X, _pivot_offset.Z) + FVector(_relative_offset.Y, _relative_offset.X, _relative_offset.Z));
+			return tr;
+		}
+		case EAxisPerm::Z_n_XY_2:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(0., 180., 2 * 90.)));
+			tr.SetLocation(ctr + FVector(-_pivot_offset.X, _pivot_offset.Y, _pivot_offset.Z) + FVector(-_relative_offset.X, _relative_offset.Y, _relative_offset.Z));
+			return tr;
+		}
+		case EAxisPerm::Z_n_XY_3:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(0., 180., 3 * 90.)));
+			tr.SetLocation(ctr + FVector(-_pivot_offset.Y, -_pivot_offset.X, _pivot_offset.Z) + FVector(-_relative_offset.Y, -_relative_offset.X, _relative_offset.Z));
+			return tr;
+		}
+		//-------------------------
+		case EAxisPerm::Y_n_XZ_0:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(90., 180., 0.)));
+			tr.SetLocation(ctr + FVector(_pivot_offset.X, -_pivot_offset.Z, _pivot_offset.Y) + FVector(_relative_offset.X, -_relative_offset.Z, -_relative_offset.Y));
+			return tr;
+		}
+		case EAxisPerm::Y_n_XZ_1:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(90., 180., 90.)));
+			tr.SetLocation(ctr + FVector(_pivot_offset.Z, _pivot_offset.X, _pivot_offset.Y) + FVector(_relative_offset.Z, _relative_offset.X, -_relative_offset.Y));
+			return tr;
+		}
+		case EAxisPerm::Y_n_XZ_2:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(90., 180., 2 * 90.)));
+			tr.SetLocation(ctr + FVector(-_pivot_offset.X, _pivot_offset.Z, _pivot_offset.Y) + FVector(-_relative_offset.X, _relative_offset.Z, -_relative_offset.Y));
+			return tr;
+		}
+		case EAxisPerm::Y_n_XZ_3:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(90., 180., 3 * 90.)));
+			tr.SetLocation(ctr + FVector(-_pivot_offset.Z, -_pivot_offset.X, _pivot_offset.Y) + FVector(-_relative_offset.Z, -_relative_offset.X, -_relative_offset.Y));
+			return tr;
+		}
+		//-------------------------
+		case EAxisPerm::X_n_YZ_0:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(90., 180 + 90., 0.)));
+			tr.SetLocation(ctr + FVector(-_pivot_offset.Y, -_pivot_offset.Z, _pivot_offset.X) + FVector(_relative_offset.Y, -_relative_offset.Z, _relative_offset.X));
+			return tr;
+		}
+		case EAxisPerm::X_n_YZ_1:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(90., -90., -90.)));
+			tr.SetLocation(ctr + FVector(-_pivot_offset.Z, _pivot_offset.Y, _pivot_offset.X) + FVector(-_relative_offset.Z, -_relative_offset.Y, _relative_offset.X));
+			return tr;
+		}
+		case EAxisPerm::X_n_YZ_2:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(3 * 90., 180 + 90., 0.)));
+			tr.SetLocation(ctr + FVector(_pivot_offset.Y, _pivot_offset.Z, _pivot_offset.X) + FVector(-_relative_offset.Y, _relative_offset.Z, _relative_offset.X));
+			return tr;
+		}
+		case EAxisPerm::X_n_YZ_3:
+		{
+			FTransform tr;
+			tr.SetRotation(FQuat::MakeFromEuler(FVector(-90., 270., 270.)));
+			tr.SetLocation(ctr + FVector(_pivot_offset.Z, -_pivot_offset.Y, _pivot_offset.X) + FVector(_relative_offset.Z, _relative_offset.Y, _relative_offset.X));
+			return tr;
+		}
+	}
+	return FTransform();
+}//TurboPacker::Detail::get_transform
+
+//------------------------------------------
+
+void ASpectralPacker::Pack() {
+	using namespace TurboPacker;
+	using namespace Spectral;
+
+	UWorld* world = GetWorld();
+	if (!world) return;
+
+	Clear();
+
+	HeightMap<double> map(Bounds.X, Bounds.Y, Bounds.Z);
+
+	while (true) {
+
+	}
+
+}//ASpectralPacker::Pack
+
+void ASpectralPacker::Clear() {
+	UWorld* world = GetWorld();
+	if (!world) return;
+
+	FlushPersistentDebugLines(world);
+
+	TArray<AActor*> tod;
+	UGameplayStatics::GetAllActorsOfClass(world, APackerBox::StaticClass(), tod);
+	for (AActor* a : tod)
+		world->DestroyActor(a);
+}//ASpectralPacker::Clear
+
+//------------------------------------------
+
 void ASpectralTester::Clear() {
 	using namespace Util;
 
@@ -14,56 +234,16 @@ void ASpectralTester::Clear() {
 	FlushPersistentDebugLines(world);
 }//ASpectralTester::Clear()
 
-void ASpectralTester::TestInfGrid() {
-
-	using namespace Util;
-
-	UWorld* world = GetWorld();
-	if (!world) return;
-
-	FlushPersistentDebugLines(world);
-
-	std::random_device rd;
-	Rand rand(rd());
-
-	Eigen::Vector3d size(10., 10., 10.);
-
-	InfBucketGrid<bool, FVector> map(size);
-
-	Dist d(0., 50.);
-	for (int32 i = 0; i < 100000; ++i) {
-		map.push(true, FVector(d(rand), d(rand), d(rand)));
-	}
-
-	for (int32 z = 0; z < 5; ++z) {
-		for (int32 y = 0; y < 5; ++y) {
-			for (int32 x = 0; x < 5; ++x) {
-
-				DrawDebugBox(world, FVector(x * 10.f, y * 10.f, z * 10.f), FVector(4.9f), FColor::Blue, true);
-
-			}
-		}
-	}
-
-	auto b1 = map.radial_search(FVector(25.f), 5.f);
-
-	std::cout << b1.size() << std::endl;
-
-	for (const auto t : b1) {
-		const auto& [tt, p] = *t;
-		DrawDebugPoint(world, p, 1.f, FColor::Red, true);
-	}
-
-}//ASpectralTester::TestInfGrid
-
 void ASpectralTester::TestHeightMap() {
 
 	using namespace Util;
+	using namespace TurboPacker;
+	using namespace Spectral;
 
 	UWorld* world = GetWorld();
 	if (!world) return;
 
-	FlushPersistentDebugLines(world);
+	Clear();
 
 	//const FBox bounds(FVector(0.f), FVector(100, 100, 1));
 	//DrawDebugBox(world, bounds.GetCenter(), bounds.GetExtent(), FColor::Blue, true);
@@ -71,7 +251,7 @@ void ASpectralTester::TestHeightMap() {
 	//1200*800*1700
 	using Rollcage = HeightMap<double>;
 	//const auto start1 = std::chrono::high_resolution_clock::now();
-	Rollcage map(100, 100, 1);
+	Rollcage map(100, 100, 10);
 	//const std::chrono::duration<double> ee1 = std::chrono::high_resolution_clock::now() - start1;
 	//std::cout << "Plan: " << ee1.count() << "s" << std::endl;
 
@@ -97,45 +277,45 @@ void ASpectralTester::TestHeightMap() {
 
 	if constexpr (true) {
 		const auto start = std::chrono::high_resolution_clock::now();
-		const auto res = map.overlap(FVector(11.));
+		const auto res = map.overlap<true>(FVector(11.));
 		const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
 		std::cout << "Overlap: " << ee.count() << "s" << std::endl;
 
-		std::vector<unsigned char> img;
-		for(int32 n0 = 0; n0 < map.n0_; ++n0){
-			for (int32 n1 = 0; n1 < map.n1_; ++n1) {
-				const int32 i = n1 + n0 * map.n1_;
-				switch (res[0][i]) {
-					case -1:
-					{
-						img.push_back(255);
-						img.push_back(0);
-						img.push_back(0);
-						img.push_back(255);
-					}
-					break;
-					case 0:
-					{
-						img.push_back(0);
-						img.push_back(255);
-						img.push_back(0);
-						img.push_back(255);
-					}
-					break;
-					case 1:
-					{
-						img.push_back(0);
-						img.push_back(0);
-						img.push_back(255);
-						img.push_back(255);
-					}
-					break;
-				}
+		//std::vector<unsigned char> img;
+		//for(int32 n0 = 0; n0 < map.n0_; ++n0){
+		//	for (int32 n1 = 0; n1 < map.n1_; ++n1) {
+		//		const int32 i = n1 + n0 * map.n1_;
+		//		switch (res[0][i]) {
+		//			case -1:
+		//			{
+		//				img.push_back(255);
+		//				img.push_back(0);
+		//				img.push_back(0);
+		//				img.push_back(255);
+		//			}
+		//			break;
+		//			case 0:
+		//			{
+		//				img.push_back(0);
+		//				img.push_back(255);
+		//				img.push_back(0);
+		//				img.push_back(255);
+		//			}
+		//			break;
+		//			case 1:
+		//			{
+		//				img.push_back(0);
+		//				img.push_back(0);
+		//				img.push_back(255);
+		//				img.push_back(255);
+		//			}
+		//			break;
+		//		}
 
-				//DrawDebugPoint(world, FVector(x, y, 0), 1.f, FColor(0, 0, int32(double(res[1][i]) * frac)), true);
-			}
-			lodepng::encode("C:\\Users\\Heerdam\\Desktop\\Coding\\ue5\\TurboPacker\\test_r.png", img.data(), map.n1_, map.n0_);
-		}
+		//		//DrawDebugPoint(world, FVector(x, y, 0), 1.f, FColor(0, 0, int32(double(res[1][i]) * frac)), true);
+		//	}
+		//	lodepng::encode("C:\\Users\\Heerdam\\Desktop\\Coding\\ue5\\TurboPacker\\test_r.png", img.data(), map.n1_, map.n0_);
+		//}
 
 
 
@@ -272,3 +452,274 @@ void ASpectralTester::TestFFTW() {
 	fftw_free(ref_out);
 
 }//ASpectralTester::TestFFTW
+
+void ASpectralTester::TestKernel() {
+
+	std::array<int32, 9> test;
+	std::array<int32, 9> kernel;
+
+	const auto count = [&]() {
+		int32 r = 0;
+		for (int32 i = 0; i < 9; ++i)
+			r += test[i] * kernel[i];
+		std::cout << r << std::endl;
+	};
+
+	{
+		std::cout << "Kernel:" << std::endl;
+
+		/*
+		-2 -2  1
+		-2  0  1
+		 1  1  2
+		*/
+
+		kernel[0] = -2;
+		kernel[1] = -2;
+		kernel[2] = 1;
+		std::cout << kernel[0] << " | " << kernel[1] << " | " << kernel[2] << std::endl;
+
+		kernel[3] = -2;
+		kernel[4] = 0;
+		kernel[5] = 1;
+		std::cout << kernel[3] << " | " << kernel[4] << " | " << kernel[5] << std::endl;
+
+		kernel[6] = 1;
+		kernel[7] = 1;
+		kernel[8] = 2;
+		std::cout << kernel[6] << " | " << kernel[7] << " | " << kernel[8] << std::endl;
+
+	}
+
+	{
+		std::cout << "Domain 0:" << std::endl;
+
+		test[0] = 1;
+		test[1] = 1;
+		test[2] = 1;
+		std::cout << test[0] << " | " << test[1] << " | " << test[2] << std::endl;
+
+		test[3] = 1;
+		test[4] = 1;
+		test[5] = 1;
+		std::cout << test[3] << " | " << test[4] << " | " << test[5] << std::endl;
+
+		test[6] = 1;
+		test[7] = 1;
+		test[8] = 1;
+		std::cout << test[6] << " | " << test[7] << " | " << test[8] << std::endl;
+	}
+
+	count();
+
+	{
+		std::cout << "Domain 1:" << std::endl;
+
+		test[0] = 3;
+		test[1] = 2;
+		test[2] = 1;
+		std::cout << test[0] << " | " << test[1] << " | " << test[2]  << std::endl;
+
+		test[3] = 3;
+		test[4] = 2;
+		test[5] = 1;
+		std::cout << test[3] << " | " << test[4] << " | " << test[5]  << std::endl;
+
+		test[6] = 3;
+		test[7] = 2;
+		test[8] = 1;
+		std::cout << test[6] << " | " << test[7] << " | " << test[8]  << std::endl;
+	}
+
+	count();
+
+	{
+		std::cout << "Domain 2:" << std::endl;
+
+		test[0] = 1;
+		test[1] = 2;
+		test[2] = 3;
+		std::cout << test[0] << " | " << test[1] << " | " << test[2] << std::endl;
+
+		test[3] = 1;
+		test[4] = 2;
+		test[5] = 3;
+		std::cout << test[3] << " | " << test[4] << " | " << test[5] << std::endl;
+
+		test[6] = 1;
+		test[7] = 2;
+		test[8] = 3;
+		std::cout << test[6] << " | " << test[7] << " | " << test[8] << std::endl;
+	}
+
+	count();
+
+	{
+		std::cout << "Domain 3:" << std::endl;
+
+		test[0] = 3;
+		test[1] = 3;
+		test[2] = 3;
+		std::cout << test[0] << " | " << test[1] << " | " << test[2] << std::endl;
+
+		test[3] = 2;
+		test[4] = 2;
+		test[5] = 2;
+		std::cout << test[3] << " | " << test[4] << " | " << test[5] << std::endl;
+
+		test[6] = 1;
+		test[7] = 1;
+		test[8] = 1;
+		std::cout << test[6] << " | " << test[7] << " | " << test[8] << std::endl;
+	}
+
+	count();
+
+	{
+		std::cout << "Domain 4:" << std::endl;
+
+		test[0] = 1;
+		test[1] = 1;
+		test[2] = 1;
+		std::cout << test[0] << " | " << test[1] << " | " << test[2] << std::endl;
+
+		test[3] = 2;
+		test[4] = 2;
+		test[5] = 2;
+		std::cout << test[3] << " | " << test[4] << " | " << test[5] << std::endl;
+
+		test[6] = 3;
+		test[7] = 3;
+		test[8] = 3;
+		std::cout << test[6] << " | " << test[7] << " | " << test[8] << std::endl;
+	}
+
+	count();
+
+	{
+		std::cout << "Domain 5:" << std::endl;
+
+		test[0] = 1;
+		test[1] = 1;
+		test[2] = 1;
+		std::cout << test[0] << " | " << test[1] << " | " << test[2] << std::endl;
+
+		test[3] = 1;
+		test[4] = 1;
+		test[5] = 1;
+		std::cout << test[3] << " | " << test[4] << " | " << test[5] << std::endl;
+
+		test[6] = 2;
+		test[7] = 2;
+		test[8] = 2;
+		std::cout << test[6] << " | " << test[7] << " | " << test[8] << std::endl;
+	}
+
+	count();
+
+	{
+		std::cout << "Domain 6:" << std::endl;
+
+		test[0] = 2;
+		test[1] = 1;
+		test[2] = 1;
+		std::cout << test[0] << " | " << test[1] << " | " << test[2] << std::endl;
+
+		test[3] = 2;
+		test[4] = 1;
+		test[5] = 1;
+		std::cout << test[3] << " | " << test[4] << " | " << test[5] << std::endl;
+
+		test[6] = 2;
+		test[7] = 1;
+		test[8] = 1;
+		std::cout << test[6] << " | " << test[7] << " | " << test[8] << std::endl;
+	}
+
+	count();
+
+	{
+		std::cout << "Domain 5:" << std::endl;
+
+		test[0] = 2;
+		test[1] = 2;
+		test[2] = 2;
+		std::cout << test[0] << " | " << test[1] << " | " << test[2] << std::endl;
+
+		test[3] = 2;
+		test[4] = 2;
+		test[5] = 2;
+		std::cout << test[3] << " | " << test[4] << " | " << test[5] << std::endl;
+
+		test[6] = 1;
+		test[7] = 1;
+		test[8] = 1;
+		std::cout << test[6] << " | " << test[7] << " | " << test[8] << std::endl;
+	}
+
+	count();
+
+	{
+		std::cout << "Domain 6:" << std::endl;
+
+		test[0] = 1;
+		test[1] = 2;
+		test[2] = 2;
+		std::cout << test[0] << " | " << test[1] << " | " << test[2] << std::endl;
+
+		test[3] = 1;
+		test[4] = 2;
+		test[5] = 2;
+		std::cout << test[3] << " | " << test[4] << " | " << test[5] << std::endl;
+
+		test[6] = 1;
+		test[7] = 2;
+		test[8] = 2;
+		std::cout << test[6] << " | " << test[7] << " | " << test[8] << std::endl;
+	}
+
+	count();
+
+	{
+		std::cout << "Domain 7:" << std::endl;
+
+		test[0] = 2;
+		test[1] = 2;
+		test[2] = 2;
+		std::cout << test[0] << " | " << test[1] << " | " << test[2] << std::endl;
+
+		test[3] = 2;
+		test[4] = 1;
+		test[5] = 1;
+		std::cout << test[3] << " | " << test[4] << " | " << test[5] << std::endl;
+
+		test[6] = 2;
+		test[7] = 1;
+		test[8] = 1;
+		std::cout << test[6] << " | " << test[7] << " | " << test[8] << std::endl;
+	}
+
+	count();
+
+	{
+		std::cout << "Domain 8:" << std::endl;
+
+		test[0] = 1;
+		test[1] = 1;
+		test[2] = 1;
+		std::cout << test[0] << " | " << test[1] << " | " << test[2] << std::endl;
+
+		test[3] = 1;
+		test[4] = 2;
+		test[5] = 2;
+		std::cout << test[3] << " | " << test[4] << " | " << test[5] << std::endl;
+
+		test[6] = 1;
+		test[7] = 2;
+		test[8] = 2;
+		std::cout << test[6] << " | " << test[7] << " | " << test[8] << std::endl;
+	}
+
+	count();
+
+}//ASpectralTester::TestKernel
