@@ -252,15 +252,29 @@ void ASpectralTester::TestHeightMap() {
 	using Rollcage = HeightMap<double>;
 	//const auto start1 = std::chrono::high_resolution_clock::now();
 	Rollcage map(100, 100, 10);
+	//Rollcage map(1200, 800, 1700);
 	//const std::chrono::duration<double> ee1 = std::chrono::high_resolution_clock::now() - start1;
 	//std::cout << "Plan: " << ee1.count() << "s" << std::endl;
 
-	//map.print_size_in_bytes();
+	map.print_size_in_bytes();
 
-	const FBox p(FVector(40, 40, 0), FVector(60, 60, 1));
-	//DrawDebugBox(world, p.GetCenter() + FVector(5, 5, 0), p.GetExtent(), FColor::Blue, true);
+	{
+		const FBox p(FVector(20, 20, 0), FVector(53, 80, 2));
+		//DrawDebugBox(world, p.GetCenter() + FVector(5, 5, 0), p.GetExtent(), FColor::Blue, true);
+		map.push(p.GetCenter(), p.GetExtent());
+	}
 
-	map.push(p.GetCenter(), p.GetExtent());
+	{
+		const FBox p(FVector(20, 20, 0), FVector(48, 80, 3));
+		//DrawDebugBox(world, p.GetCenter() + FVector(5, 5, 0), p.GetExtent(), FColor::Blue, true);
+		map.push(p.GetCenter(), p.GetExtent());
+	}
+
+	{
+		const FBox p(FVector(53, 20, 0), FVector(80, 80, 1));
+		//DrawDebugBox(world, p.GetCenter() + FVector(5, 5, 0), p.GetExtent(), FColor::Blue, true);
+		map.push(p.GetCenter(), p.GetExtent());
+	}
 
 	/*
 	for (int32 y = 0; y < map.y_; ++y) {
@@ -280,6 +294,12 @@ void ASpectralTester::TestHeightMap() {
 		const auto res = map.overlap<true>(FVector(11.));
 		const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
 		std::cout << "Overlap: " << ee.count() << "s" << std::endl;
+
+		int32 s = 0;
+		for (const auto& [pos, d, p] : res) {
+			s++;
+		}
+		std::cout << s << std::endl;
 
 		//std::vector<unsigned char> img;
 		//for(int32 n0 = 0; n0 < map.n0_; ++n0){
@@ -459,34 +479,30 @@ void ASpectralTester::TestKernel() {
 	std::array<int32, 9> kernel;
 
 	const auto count = [&]() {
-		int32 r = 0;
-		for (int32 i = 0; i < 9; ++i)
-			r += test[i] * kernel[i];
-		std::cout << r << std::endl;
+		double r = 0;
+		double r1 = 0;
+		for (int32 i = 0; i < 9; ++i) {
+			r += std::log(double(test[i] + 1)) * (double)kernel[i];
+		}
+		std::cout << r << "[" << std::exp(r) << "]" << std::endl;
 	};
 
 	{
 		std::cout << "Kernel:" << std::endl;
 
-		/*
-		-2 -2  1
-		-2  0  1
-		 1  1  2
-		*/
-
-		kernel[0] = -2;
-		kernel[1] = -2;
+		kernel[0] = 1;
+		kernel[1] = 1;
 		kernel[2] = 1;
 		std::cout << kernel[0] << " | " << kernel[1] << " | " << kernel[2] << std::endl;
 
-		kernel[3] = -2;
+		kernel[3] = 1;
 		kernel[4] = 0;
 		kernel[5] = 1;
 		std::cout << kernel[3] << " | " << kernel[4] << " | " << kernel[5] << std::endl;
 
 		kernel[6] = 1;
 		kernel[7] = 1;
-		kernel[8] = 2;
+		kernel[8] = 1;
 		std::cout << kernel[6] << " | " << kernel[7] << " | " << kernel[8] << std::endl;
 
 	}
@@ -494,19 +510,19 @@ void ASpectralTester::TestKernel() {
 	{
 		std::cout << "Domain 0:" << std::endl;
 
-		test[0] = 1;
-		test[1] = 1;
-		test[2] = 1;
+		test[0] = 2;
+		test[1] = 2;
+		test[2] = 2;
 		std::cout << test[0] << " | " << test[1] << " | " << test[2] << std::endl;
 
-		test[3] = 1;
-		test[4] = 1;
-		test[5] = 1;
+		test[3] = 2;
+		test[4] = 2;
+		test[5] = 2;
 		std::cout << test[3] << " | " << test[4] << " | " << test[5] << std::endl;
 
-		test[6] = 1;
-		test[7] = 1;
-		test[8] = 1;
+		test[6] = 2;
+		test[7] = 2;
+		test[8] = 2;
 		std::cout << test[6] << " | " << test[7] << " | " << test[8] << std::endl;
 	}
 

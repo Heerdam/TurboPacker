@@ -129,7 +129,7 @@ namespace TurboPacker {
 
 			//---------------------
 			
-			template <typename T>
+			template <class T>
 			class FFTWAllocator {
 			public:
 				using value_type = T;
@@ -266,7 +266,7 @@ namespace TurboPacker {
 			static_assert(std::is_same_v<T, double> || std::is_same_v<T, float>);
 
 		public:
-			//real size
+			//domain size
 			const int32 n0_;
 			const int32 n1_;
 			const int32 n1_c_;
@@ -277,35 +277,32 @@ namespace TurboPacker {
 			const int32 p_n1_;
 			const int32 p_n1_c_;
 
+			//offset
+			const int32 off0_;
+			const int32 off1_;
+
 		private:
+			const T SCALE;
+
 			//map
 			std::vector<int32> map;
 
 			//signal
-			FFTWVector<T> signal_r;
 			FFTWVector<std::complex<T>> signal_c;
+			FFTWVector<std::complex<T>> signal_log_c;
 
 			//kernel
-			FFTWVector<T> kernel_r;
 			FFTWVector<std::complex<T>> kernel_c;
 
 			//sobel
 			FFTWVector<std::complex<T>> sobel_x_c;
 			FFTWVector<std::complex<T>> sobel_y_c;
-
-			//gradient kernel
-			FFTWVector<T> gradient_kernel_r ;
-			FFTWVector<std::complex<T>> gradient_kernel_c;
-
-			//gradient
-			FFTWVector<T> gradient_r;
-			FFTWVector<std::complex<T>> gradient_c;
+			FFTWVector<std::complex<T>> border_c;
 
 			//temp
+			FFTWVector<T> temp1_r;
+			FFTWVector<T> temp2_r;
 			FFTWVector<std::complex<T>> temp_c;
-
-			//result
-			mutable std::array<std::vector<char>, 6> result;
 
 			//plans
 			FFTWPlanPtr<T> plan_r2c;
@@ -318,7 +315,7 @@ namespace TurboPacker {
 			//--------------------
 			// Z_XY | ZYX | Y_XZ | Y_ZX | X_YZ | X_ZY
 			template<bool DEBUG = false>
-			const std::array<std::vector<char>, 6>& overlap(const FVector& _ext, const int32 _perm = 0x3F);
+			std::vector<std::tuple<FIntVector2, T, int32>> overlap(const FVector& _ext, const int32 _perm = 0x3F);
 			void push(const FVector& _pos, const FVector& _ext);
 			void print_size_in_bytes() const;
 
@@ -387,37 +384,37 @@ public:
 template<class T>
 TurboPacker::Spectral::HeightMap<T>::HeightMap(const int32 _n0, const int32 _n1, const int32 _h) :
 	n0_(_n0), n1_(_n1), n1_c_(_n1 / 2 + 1), h_(_h),
-	p_n0_(2 * _n0 - 1), p_n1_(2 * _n1 - 1), p_n1_c_(p_n1_ / 2 + 1) {
+	p_n0_(int32(std::pow(std::floor(std::sqrt(double(2 * _n0 - 1))) + 1, 2))), 
+	p_n1_(int32(std::pow(std::floor(std::sqrt(double(2 * _n1 - 1))) + 1, 2))),
+	p_n1_c_(p_n1_ / 2 + 1),
+	off0_((p_n0_ - n0_)/2), off1_((p_n1_ - n1_) / 2),
+	SCALE(1. / T(p_n0_ * p_n1_))
+{
 
 	using namespace Util;
 	using namespace Detail;
 
 	map.resize(_n0 * _n1);
 	std::fill(map.begin(), map.end(), 0);
-	for (int32 i = 0; i < 6; ++i)
-		result[i].resize(_n0 * _n1);
 	//-------------------------
-	signal_r.resize(p_n0_ * p_n1_);
-	signal_c.resize(p_n0_ * p_n1_);
+	signal_c.resize(p_n0_ * p_n1_c_);
+	signal_log_c.resize(p_n0_ * p_n1_c_);
 
-	kernel_r.resize(p_n0_ * p_n1_);
-	kernel_c.resize(p_n0_ * p_n1_);
+	kernel_c.resize(p_n0_ * p_n1_c_);
 
-	sobel_x_c.resize(p_n0_ * p_n1_);
-	sobel_y_c.resize(p_n0_ * p_n1_);
+	sobel_x_c.resize(p_n0_ * p_n1_c_);
+	sobel_y_c.resize(p_n0_ * p_n1_c_);
+	border_c.resize(p_n0_ * p_n1_c_);
 
-	gradient_kernel_r.resize(p_n0_ * p_n1_);
-	gradient_kernel_c.resize(p_n0_ * p_n1_);
-
-	gradient_r.resize(p_n0_ * p_n1_);
-	gradient_c.resize(p_n0_ * p_n1_);
-
-	temp_c.resize(p_n0_ * p_n1_);
-
-	plan_r2c = FFTWPlanPtr<T>(FFTWPlaner<T>::r2c(p_n0_, p_n1_, signal_r.data(), signal_c.data()));
-	plan_c2r = FFTWPlanPtr<T>(FFTWPlaner<T>::c2r(p_n0_, p_n1_, signal_c.data(), signal_r.data()));
+	temp1_r.resize(p_n0_ * p_n1_);
+	temp2_r.resize(p_n0_ * p_n1_);
+	temp_c.resize(p_n0_ * p_n1_c_);
+	//-------------------------
+	plan_r2c = FFTWPlanPtr<T>(FFTWPlaner<T>::r2c(p_n0_, p_n1_, temp1_r.data(), signal_c.data()));
+	plan_c2r = FFTWPlanPtr<T>(FFTWPlaner<T>::c2r(p_n0_, p_n1_, signal_c.data(), temp1_r.data()));
 	//---------------
 	FFTWVector<T> sobel_r(p_n0_ * p_n1_);
+	std::fill(sobel_r.begin(), sobel_r.end(), 0);
 	sobel_r[0 + 0 * p_n1_] = -1.;
 	sobel_r[1 + 0 * p_n1_] = 0.;
 	sobel_r[2 + 0 * p_n1_] = 1.;
@@ -443,53 +440,109 @@ TurboPacker::Spectral::HeightMap<T>::HeightMap(const int32 _n0, const int32 _n1,
 
 template<class T>
 template<bool DEBUG>
-const std::array<std::vector<char>, 6>& TurboPacker::Spectral::HeightMap<T>::overlap(const FVector& _ext, const int32 _perm) {
+std::vector<std::tuple<FIntVector2, T, int32>> TurboPacker::Spectral::HeightMap<T>::overlap(const FVector& _ext, const int32 _perm) {
 	using namespace Util;
 	using namespace Debug;
 	using namespace Detail;
-	//----------
-	const int32 o1 = n1_ / 2;
-	const int32 o0 = n0_ / 2;
-	//------------ Signal -----------
-	for (int32 i = 0; i < p_n0_ * p_n1_; ++i)
-		signal_r[i] = 0.;
+
+	if constexpr (DEBUG) {
+		std::cout << "n0: " << n0_ << " n1: " << n1_ << std::endl;
+		std::cout << "p_n0: " << p_n0_ << " p_n1: " << p_n1_ << std::endl;
+		std::cout << "off0: " << off0_ << " off1: " << off1_ << std::endl;
+	}
+
+	//------------------------------------------------
+	//-------------- Signal/Convolution --------------
+	//------------------------------------------------
+
 	for (int32 n0 = 0; n0 < n0_; ++n0) {
 		for (int32 n1 = 0; n1 < n1_; ++n1) {	
 			const int32 i1 = n1 + n0 * n1_;
-			const int32 i2 = (n1 + o1) + (n0 + o0) * p_n1_;
-			signal_r[i2] = T(map[i1]);
+			const int32 i2 = (n1 + off1_) + (n0 + off0_) * p_n1_;
+			temp1_r[i2] = T(map[i1]);
+		}
+	}
+	if constexpr (DEBUG) image_real<T, false>(p_n0_, p_n1_, temp1_r.data(), "1_signal.png");
+	FFTWExecutor<T>::r2c(plan_r2c.get(), temp1_r.data(), signal_c.data());
+
+	for (int32 n0 = 0; n0 < n0_; ++n0) {
+		for (int32 n1 = 0; n1 < n1_; ++n1) {
+			const int32 i1 = n1 + n0 * n1_;
+			const int32 i2 = (n1 + off1_) + (n0 + off0_) * p_n1_;
+			temp1_r[i2] = std::log(T(map[i1]+1));
+		}
+	}
+	FFTWExecutor<T>::r2c(plan_r2c.get(), temp1_r.data(), signal_log_c.data());
+
+	//------------------------------------------------
+	//-------------- Sobel/Convolution ---------------
+	//------------------------------------------------
+
+	//------------------ Sobel X --------------------
+	for (int32 n0 = 0; n0 < p_n0_; ++n0) {
+		for (int32 n1 = 0; n1 < p_n1_c_; ++n1) {
+			const int32 i = n1 + n0 * p_n1_c_;
+			const std::complex<T>& c1 = signal_c[i];
+			const std::complex<T>& c2 = sobel_x_c[i];
+			const auto r = c1 * c2;
+			temp_c[i] = r;
+		}
+	}
+	FFTWExecutor<T>::c2r(plan_c2r.get(), temp_c.data(), temp1_r.data());
+	for (int32 n0 = 0; n0 < n0_; ++n0) {
+		for (int32 n1 = 0; n1 < n1_; ++n1) {
+			const int32 i1 = (n1 + off1_) + (n0 + off0_) * p_n1_;
+			const int32 i2 = (n1 + off1_ + 1) + (n0 + off0_ + 1) * p_n1_;
+			const int32 v = int32(std::abs((temp1_r[i2] * SCALE)));
+			temp2_r[i1] = v == 0 ? 0. : 1.;
 		}
 	}
 
-	if constexpr (DEBUG) image_real<T, false>(p_n0_, p_n1_, signal_r.data(), "1_signal.png");
+	//------------------ Sobel Y --------------------
+	for (int32 n0 = 0; n0 < p_n0_; ++n0) {
+		for (int32 n1 = 0; n1 < p_n1_c_; ++n1) {
+			const int32 i = n1 + n0 * p_n1_c_;
+			const std::complex<T>& c1 = signal_c[i];
+			const std::complex<T>& c2 = sobel_y_c[i];
+			const auto r = c1 * c2;
+			temp_c[i] = r;
+		}
+	}
+	FFTWExecutor<T>::c2r(plan_c2r.get(), temp_c.data(), temp1_r.data());
+	for (int32 n0 = 0; n0 < n0_; ++n0) {
+		for (int32 n1 = 0; n1 < n1_; ++n1) {
+			const int32 i1 = (n1 + off1_) + (n0 + off0_) * p_n1_;
+			const int32 i2 = (n1 + off1_ + 1) + (n0 + off0_ + 1) * p_n1_;
+			const int32 v1 = int32(std::abs((temp1_r[i2] * SCALE)));
+			const int32 v2 = int32(temp2_r[i1]);
+			temp2_r[i1] = v2 == 0 && v1 == 0 ? 0. : 1.;
+		}
+	}
+	if constexpr (DEBUG) image_real<T, false>(p_n0_, p_n1_, temp2_r.data(), "2_sobel_bit.png");
+	FFTWExecutor<T>::r2c(plan_r2c.get(), temp2_r.data(), border_c.data());
 
-	FFTWExecutor<T>::r2c(plan_r2c.get(), signal_r.data(), signal_c.data());
+	//------------------------------------------------
+	//----------------- Permutations -----------------
+	//------------------------------------------------
+	const auto perm = [&](T _x, T _y, int32 _per)->void {
+		const int32 w = int32(std::floor(_x));//int32(std::floor(_ext[0]));
+		const int32 h = int32(std::floor(_y));
+		const int32 w2 = w / 2;
+		const int32 h2 = h / 2;
 
-	if constexpr (DEBUG) image_complex(p_n0_, p_n1_c_, signal_c.data(), "2_signal.png", 2.0);
-
-	if (_perm | 0x1) {
-		const int32 w = int32(std::floor(_ext[0]));
-		const int32 h = int32(std::floor(_ext[1]));
-
-		//------------ Kernel -----------
-		//needs to be in the corner
-		for (int32 i = 0; i < p_n0_ * p_n1_; ++i)
-			kernel_r[i] = 0.;
-
+		//------------------------------------------------
+		//------------------- Kernel ---------------------
+		//------------------------------------------------
+		std::fill(temp1_r.begin(), temp1_r.end(), 0);
 		for (int32 n0 = 0; n0 < h; ++n0) {
 			for (int32 n1 = 0; n1 < w; ++n1) {
 				const int32 i = n1 + n0 * p_n1_;
-				kernel_r[i] = 1.f;
+				temp1_r[i] = 1.f;
 			}
 		}
-
-		if constexpr (DEBUG) image_real<T, false>(p_n0_, p_n1_, kernel_r.data(), "3_kernel.png");
-
-		FFTWExecutor<T>::r2c(plan_r2c.get(), kernel_r.data(), kernel_c.data());
-
-		if constexpr (DEBUG) image_complex(p_n0_, p_n1_c_, kernel_c.data(), "4_kernel.png", 2.0);
-
-		//------------ Convolution -----------
+		if constexpr (DEBUG) image_real<T, false>(p_n0_, p_n1_, temp1_r.data(), "3_kernel.png");
+		FFTWExecutor<T>::r2c(plan_r2c.get(), temp1_r.data(), kernel_c.data());
+		//------------ Convolution with Signal -----------
 		for (int32 n0 = 0; n0 < p_n0_; ++n0) {
 			for (int32 n1 = 0; n1 < p_n1_c_; ++n1) {
 				const int32 i = n1 + n0 * p_n1_c_;
@@ -499,146 +552,158 @@ const std::array<std::vector<char>, 6>& TurboPacker::Spectral::HeightMap<T>::ove
 				temp_c[i] = r;
 			}
 		}
-
-		FFTWExecutor<T>::c2r(plan_c2r.get(), temp_c.data(), signal_r.data());
-
-		if constexpr (DEBUG) image_real<T, false>(p_n0_, p_n1_, signal_r.data(), "5_convolution.png");
-
-		const int32 w2 = w / 2;
-		const int32 h2 = h / 2;
-		const T SCALE = 1. / T(p_n0_ * p_n1_);
-
+		FFTWExecutor<T>::c2r(plan_c2r.get(), temp_c.data(), temp1_r.data());
+		if constexpr (DEBUG) image_real<T, false>(p_n0_, p_n1_, temp1_r.data(), "4_convolution.png");
+		//------------ Convolution with Signal -----------
 		for (int32 n0 = 0; n0 < n0_; ++n0) {
 			for (int32 n1 = 0; n1 < n1_; ++n1) {
 				const int32 i1 = n1 + n0 * n1_;
-				const int32 i2 = (n1 + o1 + h2) + (n0 + o0 + w2) * p_n1_;
+				const int32 i2 = (n1 + off1_ + h2) + (n0 + off0_ + w2) * p_n1_;
+				const int32 i3 = (n1 + off1_) + (n0 + off0_) * p_n1_;
 
 				const int32 expec = w * h * map[i1];
-				const int32 r = int32(std::abs(std::round(signal_r[i2] * SCALE)));
-				signal_r[i2] = r > expec ? -1. : r < expec ? 1. : 0.;
+				const int32 r = int32(std::abs(std::round(temp1_r[i2] * SCALE)));
+				//signal_r[i2] = r > expec ? 2. : r < expec ? 0. : 1.;
+				temp2_r[i3] = r == expec ? 1 : 0;
 				//result[_idx][i1] = r > expec ? -1 : r < expec ? 1 : 0;
 			}
 		}
-
-		if constexpr (DEBUG) image_real<T, false>(p_n0_, p_n1_, signal_r.data(), "6_convolution.png");
-
-		/*
-		//border kernel
+		//------------ Log Convolution with Signal -----------
 		for (int32 n0 = 0; n0 < p_n0_; ++n0) {
-			for (int32 n1 = 0; n1 < p_n1_; ++n1) {
-				const int32 i = n1 + n0 * p_n1_;
-
-				const int32 v = int32(std::round(kernel_r[i]));
-				if (v == 0) continue;
-
-				const int32 i1 = (n1 + 1) + n0 * p_n1_;
-				const int32 i2 = n1 + (n0 - 1) * p_n1_;
-				const int32 i3 = (n1 - 1) + n0 * p_n1_;
-				const int32 i4 = n1 + (n0 + 1) * p_n1_;
-
-				gradient_kernel_r[i1] = 1.;
-				gradient_kernel_r[i2] = 1.;
-				gradient_kernel_r[i3] = 1.;
-				gradient_kernel_r[i4] = 1.;
+			for (int32 n1 = 0; n1 < p_n1_c_; ++n1) {
+				const int32 i = n1 + n0 * p_n1_c_;
+				const std::complex<T>& c1 = signal_log_c[i];
+				const std::complex<T>& c2 = kernel_c[i];
+				const auto r = c1 * c2;
+				temp_c[i] = r;
 			}
 		}
+		FFTWExecutor<T>::c2r(plan_c2r.get(), temp_c.data(), temp1_r.data());
+		//--------- Rectified solution --------
+		for (int32 n0 = 0; n0 < n0_; ++n0) {
+			for (int32 n1 = 0; n1 < n1_; ++n1) {
+				const int32 i1 = n1 + n0 * n1_;
+				const int32 i2 = (n1 + off1_ + h2) + (n0 + off0_ + w2) * p_n1_;
+				const int32 i3 = (n1 + off1_) + (n0 + off0_) * p_n1_;
 
-		for (int32 n0 = 0; n0 < p_n0_; ++n0) {
-			for (int32 n1 = 0; n1 < p_n1_; ++n1) {
-				const int32 i = n1 + n0 * p_n1_;
-
-				const int32 v = int32(std::round(kernel_r[i]));
-				if (v == 0) continue;
-
-
+				const T expec = T(w * h) * std::log(T(map[i1] + 1));
+				const T r = std::abs((temp1_r[i2] * SCALE));
+				temp2_r[i3] = (FMath::IsNearlyEqual(temp2_r[i3], 1.) && FMath::IsNearlyEqual(expec, r)) ? 1. : 0.;
 			}
 		}
-		*/
-
-		//gradient
+		if constexpr (DEBUG) image_real<T, false>(p_n0_, p_n1_, temp2_r.data(), "5_solution.png");
+		//--------- Convolution of Kernel with border --------
 		for (int32 n0 = 0; n0 < p_n0_; ++n0) {
-			for (int32 n1 = 0; n1 < p_n1_; ++n1) {
-				const int32 i = n1 + n0 * p_n1_;
-
-				const int32 v = int32(std::round(signal_r[i]));
-				if (v == 0) continue;
-
-				const int32 i1 = (n1 + 1) + n0 * p_n1_;
-				const int32 i2 = n1 + (n0 - 1) * p_n1_;
-				const int32 i3 = (n1 - 1) + n0 * p_n1_;
-				const int32 i4 = n1 + (n0 + 1) * p_n1_;
-
-				const T v1 = int32(std::round(signal_r[i1]));
-				const T v2 = int32(std::round(signal_r[i2]));
-				const T v3 = int32(std::round(signal_r[i3]));
-				const T v4 = int32(std::round(signal_r[i4]));
-
-				if (v1 != 0 && v != v1) {
-					gradient_r[i] = 1.;
-					continue;
-				}
-				
-				if (v2 != 0 && v != v2) {
-					gradient_r[i] = 1.;
-					continue;
-				}
-
-				if (v3 != 0 && v != v3) {
-					gradient_r[i] = 1.;
-					continue;
-				}
-
-				if (v4 != 0 && v != v4) {
-					gradient_r[i] = 1.;
-					continue;
-				}
-
-				gradient_r[i] = 0.;
-
+			for (int32 n1 = 0; n1 < p_n1_c_; ++n1) {
+				const int32 i = n1 + n0 * p_n1_c_;
+				const std::complex<T>& c1 = border_c[i];
+				const std::complex<T>& c2 = kernel_c[i];
+				const auto r = c1 * c2;
+				temp_c[i] = r;
 			}
 		}
+		FFTWExecutor<T>::c2r(plan_c2r.get(), temp_c.data(), temp1_r.data());
+		if constexpr (DEBUG) image_real<T, false>(p_n0_, p_n1_, temp1_r.data(), "6_border_conv.png");
+		//--------- Rectified solution & border --------
+		for (int32 n0 = 0; n0 < n0_; ++n0) {
+			for (int32 n1 = 0; n1 < n1_; ++n1) {
+				const int32 i1 = (n1 + off1_) + (n0 + off0_) * p_n1_;
+				const int32 i2 = (n1 + off1_ + h2) + (n0 + off0_ + w2) * p_n1_;
+				const int32 v = int32(std::abs((temp1_r[i2] * SCALE)));
+				temp2_r[i1] = temp2_r[i1] * v;
+			}
+		}
+		if constexpr (DEBUG) image_real<T, false>(p_n0_, p_n1_, temp2_r.data(), "7_border_Sol.png");
 
-		if constexpr (DEBUG) image_real<T, false>(p_n0_, p_n1_, gradient_r.data(), "8_gradient.png");
+	};
 
-		//convolution
+	std::vector<std::tuple<FIntVector2, T, int32>> out;
+	if (_perm | 0x1) {
+		perm(_ext[0], _ext[1], 0);
+		const T m = 1 / (_ext[0] + _ext[1]) * 2;
+		for (int32 n0 = 0; n0 < n0_; ++n0) {
+			for (int32 n1 = 0; n1 < n1_; ++n1) {
+				const int32 i1 = n1 + n0 * n1_;
+				const int32 i2 = (n1 + off1_) + (n0 + off0_) * p_n1_;
+				const T v = temp2_r[i2];
+				if (FMath::IsNearlyZero(v)) continue;
 
-		//result
-
+				out.push_back({ { n0, n1 }, std::pow(T(map[i1]), 3) * v * m, 1 });
+			}
+		}
 	}
 
-	/*
 	if (_perm | 0x2) {
-		const int32 w = int32(std::floor(_ext[0]));
-		const int32 h = int32(std::floor(_ext[1]));
-		overlap_int(1, h, w);
+		perm(_ext[1], _ext[0], 1);
+		const T m = 1 / (_ext[1] + _ext[0]) * 2;
+		for (int32 n0 = 0; n0 < n0_; ++n0) {
+			for (int32 n1 = 0; n1 < n1_; ++n1) {
+				const int32 i1 = n1 + n0 * n1_;
+				const int32 i2 = (n1 + off1_) + (n0 + off0_) * p_n1_;
+				const T v = temp2_r[i2];
+				if (FMath::IsNearlyZero(v)) continue;
+				out.push_back({ { n0, n1 }, std::pow(T(map[i1]), 3) * v * m, 1 });
+			}
+		}
 	}
 
 	if (_perm | 0x8) {
-		const int32 w = int32(std::floor(_ext[0]));
-		const int32 h = int32(std::floor(_ext[2]));
-		overlap_int(2, w, h);
+		perm(_ext[0], _ext[2], 2);
+		const T m = 1 / (_ext[0] + _ext[2]) * 2;
+		for (int32 n0 = 0; n0 < n0_; ++n0) {
+			for (int32 n1 = 0; n1 < n1_; ++n1) {
+				const int32 i1 = n1 + n0 * n1_;
+				const int32 i2 = (n1 + off1_) + (n0 + off0_) * p_n1_;
+				const T v = temp2_r[i2];
+				if (FMath::IsNearlyZero(v)) continue;
+				out.push_back({ { n0, n1 }, std::pow(T(map[i1]), 3) * v * m, 1 });
+			}
+		}
 	}
 
 	if (_perm | 0x10) {
-		const int32 w = int32(std::floor(_ext[0]));
-		const int32 h = int32(std::floor(_ext[2]));
-		overlap_int(3, h, w);
+		perm(_ext[2], _ext[0], 3);
+		const T m = 1 / (_ext[2] + _ext[0]) * 2;
+		for (int32 n0 = 0; n0 < n0_; ++n0) {
+			for (int32 n1 = 0; n1 < n1_; ++n1) {
+				const int32 i1 = n1 + n0 * n1_;
+				const int32 i2 = (n1 + off1_) + (n0 + off0_) * p_n1_;
+				const T v = temp2_r[i2];
+				if (FMath::IsNearlyZero(v)) continue;
+				out.push_back({ { n0, n1 }, std::pow(T(map[i1]), 3) * v * m, 1 });
+			}
+		}
 	}
 
 	if (_perm | 0x20) {
-		const int32 w = int32(std::floor(_ext[1]));
-		const int32 h = int32(std::floor(_ext[2]));
-		overlap_int(4, w, h);
+		perm(_ext[1], _ext[2], 4);
+		const T m = 1 / (_ext[1] + _ext[2]) * 2;
+		for (int32 n0 = 0; n0 < n0_; ++n0) {
+			for (int32 n1 = 0; n1 < n1_; ++n1) {
+				const int32 i1 = n1 + n0 * n1_;
+				const int32 i2 = (n1 + off1_) + (n0 + off0_) * p_n1_;
+				const T v = temp2_r[i2];
+				if (FMath::IsNearlyZero(v)) continue;
+				out.push_back({ { n0, n1 }, std::pow(T(map[i1]), 3) * v * m, 1 });
+			}
+		}
 	}
 
 	if (_perm | 0x40) {
-		const int32 w = int32(std::floor(_ext[1]));
-		const int32 h = int32(std::floor(_ext[2]));
-		overlap_int(5, h, w);
+		perm(_ext[2], _ext[1], 5);
+		const T m = 1 / (_ext[2] + _ext[1]) * 2;
+		for (int32 n0 = 0; n0 < n0_; ++n0) {
+			for (int32 n1 = 0; n1 < n1_; ++n1) {
+				const int32 i1 = n1 + n0 * n1_;
+				const int32 i2 = (n1 + off1_) + (n0 + off0_) * p_n1_;
+				const T v = temp2_r[i2];
+				if (FMath::IsNearlyZero(v)) continue;
+				out.push_back({ { n0, n1 }, std::pow(T(map[i1]), 3) * v * m, 1 });
+			}
+		}
 	}
-	*/
 
-	return result;
+	return out;
 
 }//TurboPacker::Spectral::HeightMap::overlap
 
@@ -656,7 +721,7 @@ void TurboPacker::Spectral::HeightMap<T>::push(const FVector& _pos, const FVecto
 	for (int32 n0 = minY; n0 < maxY; ++n0) {
 		for (int32 n1 = minX; n1 < maxX; ++n1) {
 			const int32 i = n1 + n0 * n1_;
-			map[i] = maxZ;
+			map[i] = std::max(maxZ, map[i]);
 		}
 	}
 
@@ -664,8 +729,9 @@ void TurboPacker::Spectral::HeightMap<T>::push(const FVector& _pos, const FVecto
 
 template<class T>
 void TurboPacker::Spectral::HeightMap<T>::print_size_in_bytes() const {
-	//std::cout << "Total size: " << double(map.size() * sizeof(int32) + f_temp.size() * sizeof(T) + c_temp.size() * sizeof(std::complex<T>) +
-	//	fi_temp.size() * sizeof(T) + ci_temp.size() * sizeof(T) + 6 * result[0].size() * sizeof(int32)) / 1000000. << "Mb" << std::endl;
+	const int32 s1 = temp1_r.size() + temp2_r.size();
+	const int32 s2 = signal_c.size() + signal_log_c.size() + kernel_c.size() + sobel_x_c.size() + sobel_y_c.size() + border_c.size() + temp_c.size();
+	std::cout << ((s1 * sizeof(T) + s2 * sizeof(std::complex<T>)) /1000000) << "mb" << std::endl;
 }//TurboPacker::Spectral::HeightMap::print_size_in_bytes
 
 //----------------------------------------
@@ -730,7 +796,7 @@ void TurboPacker::Spectral::Debug::image_real(
 				c = std::abs(1. - std::abs(std::log(std::abs(1. + _buffer[i1]))) / std::log(max));
 			} else {
 				const double frac = 1. / max;
-				c = 255 * (_buffer[i1] * frac);
+				c = 255 * (std::abs(_buffer[i1]) * frac);
 			}
 
 			img.push_back(c);
