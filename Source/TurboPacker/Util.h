@@ -28,6 +28,7 @@
 #include <chrono>
 #include <ranges>
 #include <filesystem>
+#include <functional>
 
 #include <libmorton/morton.h>
 #include <tsl/robin_map.h>

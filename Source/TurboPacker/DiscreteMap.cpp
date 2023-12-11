@@ -340,31 +340,42 @@ void ASpectralTester::TestPacker(){
 	int32 count = 0;
 	const auto start = std::chrono::high_resolution_clock::now();
 	while (true) {
-		std::cout << "############### " << count << " ###############" << std::endl;
-		map.save_heightmap(count);
-		if (count == 4) break;
+		//std::cout << "############### " << count << " ###############" << std::endl;
+		//map.save_heightmap(count);
+		//if (count == 10) break;
 		
 		const auto next = Boxes[Dist(0, Boxes.Num() - 1)(r)];
 
 		const auto aabb = next->GetDefaultObject<APackerBox>()->get_aabb();
-		std::cout << "Next box: " << aabb << std::endl;
-		const auto res = map.overlap<true>(aabb.GetSize());
-		std::cout << "res: " << res.size() << std::endl;
+		//std::cout << "Next box: " << aabb << std::endl;
+		const auto res = map.overlap<false>(aabb.GetSize());
+		//std::cout << "res: " << res.size() << std::endl;
 		if (res.empty()) break;
 
-		count++;
+		
 
 		
 
 		const auto rit = std::min_element(res.begin(), res.end(), [](const auto& _e1, const auto _e2) {
 			const auto& [pos1, d1, p1] = _e1;
 			const auto& [pos2, d2, p2] = _e2;
-			return d2 < d1;
+			return d2 > d1;
 		});
 
+		/*if (count == 2) {
+			std::cout << "--------------" << std::endl;
+			for (const auto& [pos, d, p] : res) {
+				std::cout << "pos: " << pos << std::endl;
+				std::cout << "p: " << p << std::endl;
+				std::cout << "cost: " << d << std::endl;
+			}
+			std::cout << "--------------" << std::endl;
+		}*/
+
 		const auto& [pos, d, p] = *rit;
-		std::cout << "pos: " << pos << std::endl;
-		std::cout << "p: " << p << std::endl;
+		//std::cout << "pos: " << pos << std::endl;
+		//std::cout << "p: " << p << std::endl;
+		//std::cout << "cost: " << d << std::endl;
 
 		const FVector delta(pos.X, pos.Y, pos.Z);
 		const FVector ext = aabb.GetExtent();
@@ -374,7 +385,7 @@ void ASpectralTester::TestPacker(){
 			{
 				const FBox spos = FBox(FVector(-ext.X, -ext.Y, -ext.Z), FVector(ext.X, ext.Y, ext.Z)).ShiftBy(delta);
 				map.push(spos.GetCenter() + FVector(0, 0, spos.GetExtent().Z), spos.GetExtent());
-				std::cout << spos << std::endl;
+				//std::cout << "spos: "  << spos << std::endl;
 				const auto trf = ::TurboPacker::Detail::make_transform(
 					EAxisPerm::Z_XY_0,
 					spos,
@@ -388,7 +399,7 @@ void ASpectralTester::TestPacker(){
 			{
 				const FBox spos = FBox(FVector(-ext.X, -ext.Y, -ext.Z), FVector(ext.X, ext.Y, ext.Z)).ShiftBy(delta);
 				map.push(spos.GetCenter() + FVector(0, 0, spos.GetExtent().Z), spos.GetExtent());
-				std::cout << spos << std::endl;
+				//std::cout << spos << std::endl;
 				const auto trf = ::TurboPacker::Detail::make_transform(
 					EAxisPerm::Z_XY_1,
 					spos,
@@ -402,7 +413,7 @@ void ASpectralTester::TestPacker(){
 			{
 				const FBox spos = FBox(FVector(-ext.X, -ext.Y, -ext.Z), FVector(ext.X, ext.Y, ext.Z)).ShiftBy(delta);
 				map.push(spos.GetCenter() + FVector(0, 0, spos.GetExtent().Z), spos.GetExtent());
-				std::cout << spos << std::endl;
+				//std::cout << spos << std::endl;
 				const auto trf = ::TurboPacker::Detail::make_transform(
 					EAxisPerm::Y_XZ_0,
 					spos,
@@ -416,7 +427,7 @@ void ASpectralTester::TestPacker(){
 			{
 				const FBox spos = FBox(FVector(-ext.X, -ext.Y, -ext.Z), FVector(ext.X, ext.Y, ext.Z)).ShiftBy(delta);
 				map.push(spos.GetCenter() + FVector(0, 0, spos.GetExtent().Z), spos.GetExtent());
-				std::cout << spos << std::endl;
+				//std::cout << spos << std::endl;
 				const auto trf = ::TurboPacker::Detail::make_transform(
 					EAxisPerm::Y_XZ_1,
 					spos,
@@ -430,7 +441,7 @@ void ASpectralTester::TestPacker(){
 			{
 				const FBox spos = FBox(FVector(-ext.X, -ext.Y, -ext.Z), FVector(ext.X, ext.Y, ext.Z)).ShiftBy(delta);
 				map.push(spos.GetCenter() + FVector(0, 0, spos.GetExtent().Z), spos.GetExtent());
-				std::cout << spos << std::endl;
+				//std::cout << spos << std::endl;
 				const auto trf = ::TurboPacker::Detail::make_transform(
 					EAxisPerm::X_YZ_0,
 					spos,
@@ -444,7 +455,7 @@ void ASpectralTester::TestPacker(){
 			{
 				const FBox spos = FBox(FVector(-ext.X, -ext.Y, -ext.Z), FVector(ext.X, ext.Y, ext.Z)).ShiftBy(delta);
 				map.push(spos.GetCenter() + FVector(0, 0, spos.GetExtent().Z), spos.GetExtent());
-				std::cout << spos << std::endl;
+				//std::cout << spos << std::endl;
 				const auto trf = ::TurboPacker::Detail::make_transform(
 					EAxisPerm::X_YZ_1,
 					spos,
@@ -455,6 +466,8 @@ void ASpectralTester::TestPacker(){
 			}
 			break;
 		}
+
+		count++;
 		
 	}
 	const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
