@@ -208,3 +208,42 @@ namespace Util {
 	}//morton_index_3d
 
 }//Util
+
+namespace UE::Math {
+
+	inline std::ostream& operator<< (std::ostream& s, const FVector& _r) {
+		s << "[" << _r.X << ", " << _r.Y << ", " << _r.Z << "]";
+		return s;
+	}
+
+	inline std::ostream& operator<< (std::ostream& s, const FIntVector& _r) {
+		s << "[" << _r.X << ", " << _r.Y << ", " << _r.Z << "]";
+		return s;
+	}
+
+	inline std::ostream& operator<< (std::ostream& s, const FInt32Point& _r) {
+		s << "[" << _r.X << ", " << _r.Y << "]";
+		return s;
+	}
+
+	inline std::ostream& operator<< (std::ostream& s, const FIntRect& _r) {
+		s << _r.Min << _r.Max;
+		return s;
+	}
+
+	inline std::ostream& operator<< (std::ostream& s, const FVector2D& _r) {
+		s << "[" << _r.X << ", " << _r.Y << "]";
+		return s;
+	}
+
+	inline std::ostream& operator<< (std::ostream& s, const FBox2D& _r) {
+		s << _r.Min << _r.Max;
+		return s;
+	}
+
+	inline std::ostream& operator<< (std::ostream& s, const FBox& _r) {
+		s << _r.Min << _r.Max;
+		return s;
+	}
+
+}

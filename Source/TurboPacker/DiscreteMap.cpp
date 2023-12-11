@@ -232,9 +232,82 @@ void ASpectralTester::Clear() {
 	if (!world) return;
 
 	FlushPersistentDebugLines(world);
+
+	TArray<AActor*> tod;
+	UGameplayStatics::GetAllActorsOfClass(world, APackerBox::StaticClass(), tod);
+	for (AActor* a : tod)
+		world->DestroyActor(a);
 }//ASpectralTester::Clear()
 
+//------------------------------------------
+
+APackerBox::APackerBox() {
+	PrimaryActorTick.bCanEverTick = false;
+	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+	mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
+	mesh->SetupAttachment(RootComponent);
+}//APackerBox::APackerBox
+
+FBox APackerBox::get_aabb() const {
+	const FVector s = mesh->GetRelativeScale3D();
+	const FBox bb = mesh->GetStaticMesh()->GetBounds().GetBox();
+	const FVector se = FVector(bb.GetExtent().X * s.X, bb.GetExtent().Y * s.Y, bb.GetExtent().Z * s.Z);
+
+	const FBox out = FBox(bb.GetCenter() * s - se, bb.GetCenter() * s + se);
+
+	const FRotator rot = mesh->GetRelativeRotation();
+	const FVector re = rot.RotateVector(out.GetExtent());
+	const FVector c = out.GetCenter();
+
+	const FVector min = {
+		std::min(c.X - re.X, c.X + re.X),
+		std::min(c.Y - re.Y, c.Y + re.Y),
+		std::min(c.Z - re.Z, c.Z + re.Z)
+	};
+
+	const FVector max = {
+		std::max(c.X - re.X, c.X + re.X),
+		std::max(c.Y - re.Y, c.Y + re.Y),
+		std::max(c.Z - re.Z, c.Z + re.Z)
+	};
+
+	return FBox(min, max);
+}//APackerBox::get_aabb
+
+//------------------------------------------
+
 void ASpectralTester::TestHeightMap() {
+	using namespace Util;
+	using namespace TurboPacker;
+	using namespace Spectral;
+
+	using Rollcage = HeightMap<double>;
+	Rollcage map(100, 100, 10);
+
+	map.print_size_in_bytes();
+
+	{
+		const FBox p(FVector(20, 20, 0), FVector(53, 80, 2));
+		map.push(p.GetCenter(), p.GetExtent());
+	}
+
+	{
+		const FBox p(FVector(20, 20, 0), FVector(48, 80, 3));
+		map.push(p.GetCenter(), p.GetExtent());
+	}
+
+	{
+		const FBox p(FVector(53, 20, 0), FVector(80, 80, 1));
+		map.push(p.GetCenter(), p.GetExtent());
+	}
+
+	const auto start = std::chrono::high_resolution_clock::now();
+	const auto res = map.overlap<true>(FVector(11.));
+	const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
+	std::cout << "Overlap: " << ee.count() << "s" << std::endl;
+}
+
+void ASpectralTester::TestPacker(){
 
 	using namespace Util;
 	using namespace TurboPacker;
@@ -243,235 +316,151 @@ void ASpectralTester::TestHeightMap() {
 	UWorld* world = GetWorld();
 	if (!world) return;
 
+	if (Boxes.IsEmpty()) return;
+
 	Clear();
 
-	//const FBox bounds(FVector(0.f), FVector(100, 100, 1));
-	//DrawDebugBox(world, bounds.GetCenter(), bounds.GetExtent(), FColor::Blue, true);
+	std::random_device rd;
+	Rand r(rd());
 
-	//1200*800*1700
 	using Rollcage = HeightMap<double>;
-	//const auto start1 = std::chrono::high_resolution_clock::now();
-	Rollcage map(100, 100, 10);
+	Rollcage map(Bounds.X, Bounds.Y, Bounds.Z);
 	//Rollcage map(1200, 800, 1700);
-	//const std::chrono::duration<double> ee1 = std::chrono::high_resolution_clock::now() - start1;
-	//std::cout << "Plan: " << ee1.count() << "s" << std::endl;
-
 	map.print_size_in_bytes();
 
-	{
-		const FBox p(FVector(20, 20, 0), FVector(53, 80, 2));
-		//DrawDebugBox(world, p.GetCenter() + FVector(5, 5, 0), p.GetExtent(), FColor::Blue, true);
-		map.push(p.GetCenter(), p.GetExtent());
-	}
+	const FBox bounds(FVector(0.f), FVector(Bounds.X, Bounds.Y, Bounds.Z));
+	DrawDebugBox(world, bounds.GetCenter(), bounds.GetExtent(), FColor::Blue, true);
 
-	{
-		const FBox p(FVector(20, 20, 0), FVector(48, 80, 3));
-		//DrawDebugBox(world, p.GetCenter() + FVector(5, 5, 0), p.GetExtent(), FColor::Blue, true);
-		map.push(p.GetCenter(), p.GetExtent());
-	}
+	FActorSpawnParameters params;
+	params.bHideFromSceneOutliner = true;
+	params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	{
-		const FBox p(FVector(53, 20, 0), FVector(80, 80, 1));
-		//DrawDebugBox(world, p.GetCenter() + FVector(5, 5, 0), p.GetExtent(), FColor::Blue, true);
-		map.push(p.GetCenter(), p.GetExtent());
-	}
+	std::cout << "Packing started..." << std::endl;
 
-	/*
-	for (int32 y = 0; y < map.y_; ++y) {
-		for (int32 x = 0; x < map.x_; ++x) {
-			const int32 i = map[{x, y}];
+	int32 count = 0;
+	const auto start = std::chrono::high_resolution_clock::now();
+	while (true) {
+		std::cout << "############### " << count << " ###############" << std::endl;
+		map.save_heightmap(count);
+		if (count == 4) break;
+		
+		const auto next = Boxes[Dist(0, Boxes.Num() - 1)(r)];
 
-			if(i == 0)
-				DrawDebugPoint(world, FVector(x, y, 0), 1.f, FColor::Blue, true);
-			else
-				DrawDebugPoint(world, FVector(x, y, 0), 1.f, FColor::Green, true);
-		}
-	}
-	*/
+		const auto aabb = next->GetDefaultObject<APackerBox>()->get_aabb();
+		std::cout << "Next box: " << aabb << std::endl;
+		const auto res = map.overlap<true>(aabb.GetSize());
+		std::cout << "res: " << res.size() << std::endl;
+		if (res.empty()) break;
 
-	if constexpr (true) {
-		const auto start = std::chrono::high_resolution_clock::now();
-		const auto res = map.overlap<true>(FVector(11.));
-		const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
-		std::cout << "Overlap: " << ee.count() << "s" << std::endl;
-
-		int32 s = 0;
-		for (const auto& [pos, d, p] : res) {
-			s++;
-		}
-		std::cout << s << std::endl;
-
-		//std::vector<unsigned char> img;
-		//for(int32 n0 = 0; n0 < map.n0_; ++n0){
-		//	for (int32 n1 = 0; n1 < map.n1_; ++n1) {
-		//		const int32 i = n1 + n0 * map.n1_;
-		//		switch (res[0][i]) {
-		//			case -1:
-		//			{
-		//				img.push_back(255);
-		//				img.push_back(0);
-		//				img.push_back(0);
-		//				img.push_back(255);
-		//			}
-		//			break;
-		//			case 0:
-		//			{
-		//				img.push_back(0);
-		//				img.push_back(255);
-		//				img.push_back(0);
-		//				img.push_back(255);
-		//			}
-		//			break;
-		//			case 1:
-		//			{
-		//				img.push_back(0);
-		//				img.push_back(0);
-		//				img.push_back(255);
-		//				img.push_back(255);
-		//			}
-		//			break;
-		//		}
-
-		//		//DrawDebugPoint(world, FVector(x, y, 0), 1.f, FColor(0, 0, int32(double(res[1][i]) * frac)), true);
-		//	}
-		//	lodepng::encode("C:\\Users\\Heerdam\\Desktop\\Coding\\ue5\\TurboPacker\\test_r.png", img.data(), map.n1_, map.n0_);
-		//}
-
-
-
-
-
-		//double max = 0;
-		//for (int32 i = 0; i < map.p_n0_ * map.p_n1_; ++i) {
-		//	//max = std::max<double>(max, std::abs(1. - std::abs(std::log(std::abs(1. + res[i])))));
-		//	max = std::max<double>(max, std::abs(res[i]));
-		//}
-
-		//if constexpr (true){
-		//	std::vector<unsigned char> img;
-		//	for (int32 i = 0; i < map.p_n0_ * map.p_n1_; ++i) {
-		//		
-		//		//const std::complex<double> c(res[i], 0);
-		//		//std::cout << c << std::endl;
-		//		//const FVector hsl = c_to_HSL<double>(c, 10);
-		//		//const FVector col = HSL_to_RGB_rad<double>(hsl);
-		//		//const double mag =  std::abs(1. - std::abs(std::log(std::abs(1. + res[i]))) / max);
-		//		const double mag = std::abs(res[i]) / max;
-		//		//std::cout << mag << std::endl;
-
-		//		img.push_back(255 - (unsigned char)(mag * 255.));
-		//		img.push_back(255 - (unsigned char)(mag * 255.));
-		//		img.push_back(255 - (unsigned char)(mag * 255.));
-
-
-		//		//img.push_back(255 - int32(col[0] * 255.));
-		//		//img.push_back(255 - int32(col[1] * 255.));
-		//		//img.push_back(255 - int32(col[2] * 255.));
-		//		img.push_back(255);
-		//	}
-
-		//	lodepng::encode("C:\\Users\\Heerdam\\Desktop\\Coding\\ue5\\TurboPacker\\test_r.png", img.data(), map.p_n1_, map.p_n0_);
-		//}
-
-		//const double frac = 1. / 1210. * 255.;
+		count++;
 
 		
 
+		const auto rit = std::min_element(res.begin(), res.end(), [](const auto& _e1, const auto _e2) {
+			const auto& [pos1, d1, p1] = _e1;
+			const auto& [pos2, d2, p2] = _e2;
+			return d2 < d1;
+		});
+
+		const auto& [pos, d, p] = *rit;
+		std::cout << "pos: " << pos << std::endl;
+		std::cout << "p: " << p << std::endl;
+
+		const FVector delta(pos.X, pos.Y, pos.Z);
+		const FVector ext = aabb.GetExtent();
+
+		switch (p) {
+			case 0:
+			{
+				const FBox spos = FBox(FVector(-ext.X, -ext.Y, -ext.Z), FVector(ext.X, ext.Y, ext.Z)).ShiftBy(delta);
+				map.push(spos.GetCenter() + FVector(0, 0, spos.GetExtent().Z), spos.GetExtent());
+				std::cout << spos << std::endl;
+				const auto trf = ::TurboPacker::Detail::make_transform(
+					EAxisPerm::Z_XY_0,
+					spos,
+					aabb.GetCenter(),
+					next->GetDefaultObject<APackerBox>()->get_relative_location()
+				);
+				world->SpawnActor<APackerBox>(next, trf, params);
+			}
+			break;
+			case 1:
+			{
+				const FBox spos = FBox(FVector(-ext.X, -ext.Y, -ext.Z), FVector(ext.X, ext.Y, ext.Z)).ShiftBy(delta);
+				map.push(spos.GetCenter() + FVector(0, 0, spos.GetExtent().Z), spos.GetExtent());
+				std::cout << spos << std::endl;
+				const auto trf = ::TurboPacker::Detail::make_transform(
+					EAxisPerm::Z_XY_1,
+					spos,
+					aabb.GetCenter(),
+					next->GetDefaultObject<APackerBox>()->get_relative_location()
+				);
+				world->SpawnActor<APackerBox>(next, trf, params);
+			}
+			break;
+			case 2:
+			{
+				const FBox spos = FBox(FVector(-ext.X, -ext.Y, -ext.Z), FVector(ext.X, ext.Y, ext.Z)).ShiftBy(delta);
+				map.push(spos.GetCenter() + FVector(0, 0, spos.GetExtent().Z), spos.GetExtent());
+				std::cout << spos << std::endl;
+				const auto trf = ::TurboPacker::Detail::make_transform(
+					EAxisPerm::Y_XZ_0,
+					spos,
+					aabb.GetCenter(),
+					next->GetDefaultObject<APackerBox>()->get_relative_location()
+				);
+				world->SpawnActor<APackerBox>(next, trf, params);
+			}
+			break;
+			case 3:
+			{
+				const FBox spos = FBox(FVector(-ext.X, -ext.Y, -ext.Z), FVector(ext.X, ext.Y, ext.Z)).ShiftBy(delta);
+				map.push(spos.GetCenter() + FVector(0, 0, spos.GetExtent().Z), spos.GetExtent());
+				std::cout << spos << std::endl;
+				const auto trf = ::TurboPacker::Detail::make_transform(
+					EAxisPerm::Y_XZ_1,
+					spos,
+					aabb.GetCenter(),
+					next->GetDefaultObject<APackerBox>()->get_relative_location()
+				);
+				world->SpawnActor<APackerBox>(next, trf, params);
+			}
+			break;
+			case 4:
+			{
+				const FBox spos = FBox(FVector(-ext.X, -ext.Y, -ext.Z), FVector(ext.X, ext.Y, ext.Z)).ShiftBy(delta);
+				map.push(spos.GetCenter() + FVector(0, 0, spos.GetExtent().Z), spos.GetExtent());
+				std::cout << spos << std::endl;
+				const auto trf = ::TurboPacker::Detail::make_transform(
+					EAxisPerm::X_YZ_0,
+					spos,
+					aabb.GetCenter(),
+					next->GetDefaultObject<APackerBox>()->get_relative_location()
+				);
+				world->SpawnActor<APackerBox>(next, trf, params);
+			}
+			break;
+			case 5:
+			{
+				const FBox spos = FBox(FVector(-ext.X, -ext.Y, -ext.Z), FVector(ext.X, ext.Y, ext.Z)).ShiftBy(delta);
+				map.push(spos.GetCenter() + FVector(0, 0, spos.GetExtent().Z), spos.GetExtent());
+				std::cout << spos << std::endl;
+				const auto trf = ::TurboPacker::Detail::make_transform(
+					EAxisPerm::X_YZ_1,
+					spos,
+					aabb.GetCenter(),
+					next->GetDefaultObject<APackerBox>()->get_relative_location()
+				);
+				world->SpawnActor<APackerBox>(next, trf, params);
+			}
+			break;
+		}
+		
 	}
+	const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
+	std::cout << "Packing: " << ee.count() << "s" << " [" << count << "]" << std::endl;
 
 }//ASpectralTester::TestHeightMap
-
-void ASpectralTester::TestFFTW() {
-
-	using namespace Util;
-
-	const int32 n0 = 100;
-	const int32 n1 = 100;
-
-	int n1_cplx = n1 / 2 + 1;
-	//printf("n1_cplx = %d\n", n1_cplx);
-
-	double* in = fftw_alloc_real(n0 * n1);
-	fftw_complex* out = fftw_alloc_complex(n0 * n1_cplx);
-	fftw_complex* ref_out = fftw_alloc_complex(n0 * n1_cplx);
-
-	fftw_plan p = fftw_plan_dft_r2c_2d(n0, n1, in, out, FFTW_ESTIMATE);
-
-	//input
-	for (int32 y = 0; y < n0; ++y) {
-		for (int32 x = 0; x < n1; ++x) {
-
-			const int32 i = x + y * n1;
-
-			if ((x >= 40 && x <= 60) && (y >= 40 && y <= 60)) {
-				in[i] = 1.;
-			} else {
-				in[i] = 0.;
-			}
-
-		}
-	}
-
-	// manually compute DFT for reference
-	/*int idx_k, idx_j;
-	double phi;
-	for (int k0 = 0; k0 < n0; ++k0) {
-		for (int k1 = 0; k1 < n1_cplx; ++k1) {
-			idx_k = k0 * n1_cplx + k1;
-
-			ref_out[idx_k] = 0.0;
-
-			for (int j0 = 0; j0 < n0; ++j0) {
-				for (int j1 = 0; j1 < n1; ++j1) {
-					idx_j = j0 * n1 + j1;
-
-					phi = -2.0 * PI * (k0 * j0 / ((double)n0)
-						+ k1 * j1 / ((double)n1));
-
-					ref_out[idx_k] += in[idx_j] * std::exp(I * phi);
-				}
-			}
-		}
-	}*/
-
-	fftw_execute(p);
-
-	{
-		std::vector<unsigned char> img;
-		for (int32 i = 0; i < n0 * n1; ++i) {
-			img.push_back(int32(in[i] * 255.));
-			img.push_back(int32(in[i] * 255.));
-			img.push_back(int32(in[i] * 255.));
-			img.push_back(255);
-		}
-
-		lodepng::encode("C:\\Users\\Heerdam\\Desktop\\Coding\\ue5\\TurboPacker\\test_r_ref.png", img.data(), n0, n1);
-	}
-	{
-		std::vector<unsigned char> img;
-		for (int32 i = 0; i < n0 * n1_cplx; ++i) {
-			const std::complex<double> c(out[i][0], out[i][1]);
-			//std::cout << c << std::endl;
-			const FVector hsl = c_to_HSL<double>(c, 2.);
-			const FVector col = HSL_to_RGB_rad<double>(hsl);
-			//const double mag =  std::abs(1. - std::abs(std::log(std::abs(c))) / 10.);
-			//std::cout << mag << std::endl;
-
-			img.push_back(255 - int32(col[0] * 255.));
-			img.push_back(255 - int32(col[1] * 255.));
-			img.push_back(255 - int32(col[2] * 255.));
-			img.push_back(255);
-		}
-
-		lodepng::encode("C:\\Users\\Heerdam\\Desktop\\Coding\\ue5\\TurboPacker\\test_c_ref.png", img.data(), n1_cplx, n0);
-	}
-
-	fftw_destroy_plan(p);
-	fftw_free(in);
-	fftw_free(out);
-	fftw_free(ref_out);
-
-}//ASpectralTester::TestFFTW
 
 void ASpectralTester::TestKernel() {
 
@@ -496,7 +485,7 @@ void ASpectralTester::TestKernel() {
 		std::cout << kernel[0] << " | " << kernel[1] << " | " << kernel[2] << std::endl;
 
 		kernel[3] = 1;
-		kernel[4] = 0;
+		kernel[4] = 1;
 		kernel[5] = 1;
 		std::cout << kernel[3] << " | " << kernel[4] << " | " << kernel[5] << std::endl;
 
