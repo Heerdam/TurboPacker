@@ -341,7 +341,7 @@ void ASpectralTester::TestPacker(){
 	const auto start = std::chrono::high_resolution_clock::now();
 	while (true) {
 		//std::cout << "############### " << count << " ###############" << std::endl;
-		//map.save_heightmap(count);
+		map.save_heightmap(count);
 		//if (count == 10) break;
 		
 		const auto next = Boxes[Dist(0, Boxes.Num() - 1)(r)];

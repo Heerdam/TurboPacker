@@ -308,8 +308,8 @@ namespace TurboPacker {
 			FFTWPlanPtr<T> plan_r2c;
 			FFTWPlanPtr<T> plan_c2r;
 
-			//n0, n1, h
-			std::function<T(int32, int32, int32)> costf;
+			//n0, n1, h, c
+			std::function<T(int32, int32, int32, int32)> costf;
 
 		public:
 			HeightMap(const int32 _n0, const int32 _n1, const int32 _h);
@@ -322,7 +322,7 @@ namespace TurboPacker {
 			void push(const FVector& _pos, const FVector& _ext);
 			void print_size_in_bytes() const;
 			void save_heightmap(int32 _id);
-
+			void set_cost_function(const std::function<T(int32, int32, int32, int32)>& _cf) { costf = _cf; }
 		};//HeightMap
 
 	}//Spectral
@@ -452,8 +452,8 @@ TurboPacker::Spectral::HeightMap<T>::HeightMap(const int32 _n0, const int32 _n1,
 	sobel_r[2 + 2 * p_n1_] = 1.;
 	FFTWExecutor<T>::r2c(plan_r2c.get(), sobel_r.data(), sobel_y_c.data());
 	//---------------
-	costf = [](int32 _n0, int32 _n1, int32 _h) {
-		return std::pow<T>(T(_h), 3) + T(_n0) + T(_n1);
+	costf = [](int32 _n0, int32 _n1, int32 _h, int32 _c) {
+		return std::pow<T>(T(_h), 3) + T(_n0) + T(_n1) - _c;
 	};
 }//TurboPacker::Spectral::HeightMap::HeightMap
 
@@ -674,11 +674,9 @@ std::vector<std::tuple<FIntVector, T, int32>> TurboPacker::Spectral::HeightMap<T
 				const int32 i1 = n1 + n0 * n1_;
 				const int32 i2 = (n1 + off1_) + (n0 + off0_) * p_n1_;
 				const T v = temp2_r[i2];
-				const int32 hh = map[i1];
-				//std::cout << hh << ", " << n0 << ", " << n1 << std::endl;
 				if (FMath::IsNearlyZero(v)) continue;
-				if (zh + hh >= h_) continue;
-				out.push_back({ { n0, n1, hh}, costf(n0, n1, hh), 0});
+				if (zh + map[i1] >= h_) continue;
+				out.push_back({ { n0, n1, map[i1]}, costf(n0, n1, map[i1], v), 0});
 			}
 		}
 	}
@@ -692,7 +690,7 @@ std::vector<std::tuple<FIntVector, T, int32>> TurboPacker::Spectral::HeightMap<T
 				const T v = temp2_r[i2];
 				if (FMath::IsNearlyZero(v)) continue;
 				if (zh + map[i1] >= h_) continue;
-				out.push_back({ { n0, n1, map[i1] }, costf(n0, n1, map[i1]), 1 });
+				out.push_back({ { n0, n1, map[i1] }, costf(n0, n1, map[i1], v), 1});
 			}
 		}
 	}
@@ -706,7 +704,7 @@ std::vector<std::tuple<FIntVector, T, int32>> TurboPacker::Spectral::HeightMap<T
 				const T v = temp2_r[i2];
 				if (FMath::IsNearlyZero(v)) continue;
 				if (zh + map[i1] >= h_) continue;
-				out.push_back({ { n0, n1, map[i1] }, costf(n0, n1, map[i1]), 2 });
+				out.push_back({ { n0, n1, map[i1] }, costf(n0, n1, map[i1], v), 2 });
 			}
 		}
 	}
@@ -720,7 +718,7 @@ std::vector<std::tuple<FIntVector, T, int32>> TurboPacker::Spectral::HeightMap<T
 				const T v = temp2_r[i2];
 				if (FMath::IsNearlyZero(v)) continue;
 				if (zh + map[i1] >= h_) continue;
-				out.push_back({ { n0, n1, map[i1] }, costf(n0, n1, map[i1]), 3 });
+				out.push_back({ { n0, n1, map[i1] }, costf(n0, n1, map[i1], v), 3 });
 			}
 		}
 	}
@@ -734,7 +732,7 @@ std::vector<std::tuple<FIntVector, T, int32>> TurboPacker::Spectral::HeightMap<T
 				const T v = temp2_r[i2];
 				if (FMath::IsNearlyZero(v)) continue;
 				if (zh + map[i1] >= h_) continue;
-				out.push_back({ { n0, n1, map[i1] }, costf(n0, n1, map[i1]), 4 });
+				out.push_back({ { n0, n1, map[i1] }, costf(n0, n1, map[i1], v), 4 });
 			}
 		}
 	}
@@ -748,7 +746,7 @@ std::vector<std::tuple<FIntVector, T, int32>> TurboPacker::Spectral::HeightMap<T
 				const T v = temp2_r[i2];
 				if (FMath::IsNearlyZero(v)) continue;
 				if (zh + map[i1] >= h_) continue;
-				out.push_back({ { n0, n1, map[i1] }, costf(n0, n1, map[i1]), 5 });
+				out.push_back({ { n0, n1, map[i1] }, costf(n0, n1, map[i1], v), 5 });
 			}
 		}
 	}
