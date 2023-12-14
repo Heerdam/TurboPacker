@@ -203,7 +203,7 @@ void ASpectralPacker::Pack() {
 
 	Clear();
 
-	HeightMap<double> map(Bounds.X, Bounds.Y, Bounds.Z);
+	HeightMap<double, false, true> map(Bounds.X, Bounds.Y, Bounds.Z);
 
 	while (true) {
 
@@ -281,7 +281,7 @@ void ASpectralTester::TestHeightMap() {
 	using namespace TurboPacker;
 	using namespace Spectral;
 
-	using Rollcage = HeightMap<double>;
+	using Rollcage = HeightMap<double, false, true>;
 	Rollcage map(100, 100, 10);
 
 	map.print_size_in_bytes();
@@ -302,7 +302,7 @@ void ASpectralTester::TestHeightMap() {
 	}
 
 	const auto start = std::chrono::high_resolution_clock::now();
-	const auto res = map.overlap<true>(FVector(11.));
+	const auto res = map.overlap(FVector(11.));
 	const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
 	std::cout << "Overlap: " << ee.count() << "s" << std::endl;
 }
@@ -323,7 +323,7 @@ void ASpectralTester::TestPacker(){
 	std::random_device rd;
 	Rand r(rd());
 
-	using Rollcage = HeightMap<double>;
+	using Rollcage = HeightMap<double, false, true>;
 	Rollcage map(Bounds.X, Bounds.Y, Bounds.Z);
 	//Rollcage map(1200, 800, 1700);
 	map.print_size_in_bytes();
@@ -341,14 +341,14 @@ void ASpectralTester::TestPacker(){
 	const auto start = std::chrono::high_resolution_clock::now();
 	while (true) {
 		//std::cout << "############### " << count << " ###############" << std::endl;
-		map.save_heightmap(count);
+		//map.save_heightmap(count);
 		//if (count == 10) break;
 		
 		const auto next = Boxes[Dist(0, Boxes.Num() - 1)(r)];
 
 		const auto aabb = next->GetDefaultObject<APackerBox>()->get_aabb();
 		//std::cout << "Next box: " << aabb << std::endl;
-		const auto res = map.overlap<false>(aabb.GetSize());
+		const auto res = map.overlap(aabb.GetSize());
 		//std::cout << "res: " << res.size() << std::endl;
 		if (res.empty()) break;
 
