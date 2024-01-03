@@ -222,6 +222,11 @@ namespace UE::Math {
 		return s;
 	}
 
+	inline std::ostream& operator<< (std::ostream& s, const FIntVector2& _r) {
+		s << "[" << _r.X << ", " << _r.Y << "]";
+		return s;
+	}
+
 	inline std::ostream& operator<< (std::ostream& s, const FInt32Point& _r) {
 		s << "[" << _r.X << ", " << _r.Y << "]";
 		return s;

@@ -288,23 +288,121 @@ void ASpectralTester::TestHeightMap() {
 
 	{
 		const FBox p(FVector(20, 20, 0), FVector(53, 80, 2));
-		map.push(p.GetCenter(), p.GetExtent());
+		//map.push(p.GetCenter(), p.GetExtent());
 	}
 
 	{
 		const FBox p(FVector(20, 20, 0), FVector(48, 80, 3));
-		map.push(p.GetCenter(), p.GetExtent());
+		//map.push(p.GetCenter(), p.GetExtent());
 	}
 
 	{
 		const FBox p(FVector(53, 20, 0), FVector(80, 80, 1));
-		map.push(p.GetCenter(), p.GetExtent());
+		//map.push(p.GetCenter(), p.GetExtent());
 	}
 
 	const auto start = std::chrono::high_resolution_clock::now();
 	const auto res = map.overlap(FVector(11.));
 	const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
 	std::cout << "Overlap: " << ee.count() << "s" << std::endl;
+}
+
+void ASpectralTester::BenchConv() {
+	using namespace Util;
+	using namespace TurboPacker;
+	using namespace Spectral;
+	using namespace Spectral::Detail;
+
+	UWorld* world = GetWorld();
+	if (!world) return;
+
+	{
+		using Rollcage = HeightMap<double, false, false>;
+		Rollcage map(1200, 1200, 1700);
+
+		{
+			const auto start = std::chrono::high_resolution_clock::now();
+			map.overlap(FVector(100., 100., 100.));
+			const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
+			std::cout << "Spectral 100: " << ee.count() << "s" << std::endl;
+		}
+		{
+			const auto start = std::chrono::high_resolution_clock::now();
+			map.overlap(FVector(700., 700, 100.));
+			const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
+			std::cout << "Spectral 700: " << ee.count() << "s" << std::endl;
+		}
+	}
+
+	{
+		FFTWVector<double> map;
+		map.resize(1200 * 1200);
+
+		const auto idx = [](int32 _n0, int32 _n1) {
+			return _n1 + _n0 * 1200;
+		};
+
+		int32 l = 0;
+		int32 h = 0;
+
+		const auto start = std::chrono::high_resolution_clock::now();
+		for (int32 n0 = 49; n0 < 1200 - 49; ++n0) {
+			for (int32 n1 = 49; n1 < 1200 - 49; ++n1) {
+
+				const int32 i = idx(n0, n1);
+				const int32 e = map[i];
+
+				for (int m0 = -49; m0 < 50; ++m0) {
+					for (int m1 = -49; m1 < 50; ++m1) {
+						const int32 ii = idx(n0 + m0, n1 + m1);
+						const int32 v = map[ii];
+						if (v <= e) l++;
+						else h++;
+					}
+				}
+				
+			}
+		}
+		std::cout << l << " " << h << std::endl;
+		const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
+		std::cout << "naive 100: " << ee.count() << "s" << std::endl;
+
+	}
+
+	{
+		FFTWVector<double> map;
+		map.resize(1200 * 1200);
+
+		const auto idx = [](int32 _n0, int32 _n1) {
+			return _n1 + _n0 * 1200;
+		};
+
+		int32 l = 0;
+		int32 h = 0;
+
+		const auto start = std::chrono::high_resolution_clock::now();
+		for (int32 n0 = 349; n0 < 1200 - 349; ++n0) {
+			for (int32 n1 = 349; n1 < 1200 - 349; ++n1) {
+
+				const int32 i = idx(n0, n1);
+				const int32 e = map[i];
+
+				for (int m0 = -349; m0 < 350; ++m0) {
+					for (int m1 = -349; m1 < 350; ++m1) {
+						const int32 ii = idx(n0 + m0, n1 + m1);
+						const int32 v = map[ii];
+						if (v <= e) l++;
+						else h++;
+					}
+				}
+
+			}
+		}
+		std::cout << l << " " << h << std::endl;
+		const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
+		std::cout << "naive 700: " << ee.count() << "s" << std::endl;
+
+	}
 }
 
 void ASpectralTester::TestPacker(){
@@ -323,10 +421,12 @@ void ASpectralTester::TestPacker(){
 	std::random_device rd;
 	Rand r(rd());
 
-	using Rollcage = HeightMap<double, false, true>;
+	using Rollcage = HeightMap<double, false, false>;
 	Rollcage map(Bounds.X, Bounds.Y, Bounds.Z);
 	//Rollcage map(1200, 800, 1700);
 	map.print_size_in_bytes();
+
+
 
 	const FBox bounds(FVector(0.f), FVector(Bounds.X, Bounds.Y, Bounds.Z));
 	DrawDebugBox(world, bounds.GetCenter(), bounds.GetExtent(), FColor::Blue, true);
@@ -485,25 +585,27 @@ void ASpectralTester::TestKernel() {
 		double r1 = 0;
 		for (int32 i = 0; i < 9; ++i) {
 			r += std::log(double(test[i] + 1)) * (double)kernel[i];
+			r1 += test[i] * kernel[i];
 		}
+		std::cout << "lin: " << r1 << std::endl;
 		std::cout << r << "[" << std::exp(r) << "]" << std::endl;
 	};
 
 	{
 		std::cout << "Kernel:" << std::endl;
 
-		kernel[0] = 1;
-		kernel[1] = 1;
+		kernel[0] = -1;
+		kernel[1] = 0;
 		kernel[2] = 1;
 		std::cout << kernel[0] << " | " << kernel[1] << " | " << kernel[2] << std::endl;
 
-		kernel[3] = 1;
-		kernel[4] = 1;
-		kernel[5] = 1;
+		kernel[3] = -2;
+		kernel[4] = 0;
+		kernel[5] = 2;
 		std::cout << kernel[3] << " | " << kernel[4] << " | " << kernel[5] << std::endl;
 
-		kernel[6] = 1;
-		kernel[7] = 1;
+		kernel[6] = -1;
+		kernel[7] = 0;
 		kernel[8] = 1;
 		std::cout << kernel[6] << " | " << kernel[7] << " | " << kernel[8] << std::endl;
 
@@ -741,3 +843,47 @@ void ASpectralTester::TestKernel() {
 	count();
 
 }//ASpectralTester::TestKernel
+
+void ASpectralTester::QuadTreeTester() {
+
+	using namespace Util;
+	using namespace TurboPacker;
+	using namespace Spectral;
+
+	UWorld* world = GetWorld();
+	if (!world) return;
+
+	Clear();
+
+	using Con = Spectral::Impl::Config<double, false, true>;
+
+	constexpr int32 mapX = 20;
+	constexpr int32 mapY = 20;
+	constexpr int32 maph = 100;
+
+	Con config (mapX, mapY, maph);
+	config.world = world;
+
+	FFTWVector<Con::T> map;
+	map.resize(mapX * mapY);
+	std::fill(map.begin(), map.end(), 0.);
+	for (int32 n0 = 0; n0 < 10; ++n0) {
+		for (int32 n1 = 0; n1 < 10; ++n1) {
+			const int32 i = n1 + n0 * mapY;
+			map[i] = 1.;
+		}
+	}
+
+	for (int32 n0 = 10; n0 < 20; ++n0) {
+		for (int32 n1 = 10; n1 < 20; ++n1) {
+			const int32 i = n1 + n0 * mapY;
+			map[i] = 2.;
+		}
+	}
+
+	MedianQuadTree<Con::T, Con::SIMD, Con::DEBUG> tree (config, map, 10);
+	tree.recompute();
+
+
+
+}//ASpectralTester::QuadTreeTester

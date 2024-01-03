@@ -289,6 +289,8 @@ namespace TurboPacker {
 				const int32 off1_;
 				const T SCALE;
 				//---------------
+				UWorld* world = nullptr;
+				//---------------
 				FFTWVector<std::complex<T>> sobel_x_c;
 				FFTWVector<std::complex<T>> sobel_y_c;
 				//---------------
@@ -311,6 +313,7 @@ namespace TurboPacker {
 			void fft_signal(
 				Config<T_, SIMD_, DEBUG_>& _config,
 				const FFTWVector<T_>& _map,
+				const FFTWVector<T_>& _map_log,
 				FFTWVector<std::complex<T_>>& _fft_signal_out,
 				FFTWVector<std::complex<T_>>& _fft_signal_log_out
 			);
@@ -349,6 +352,79 @@ namespace TurboPacker {
 
 		}//Impl
 
+		//---------------------------------
+
+		template<class T, bool SIMD, bool DEBUG>
+		class TURBOPACKER_API MedianQuadTree {
+
+			struct Bucket {
+				//------------------
+				MedianQuadTree* p = nullptr;
+				FIntVector2 bmin, bmax;
+				//------------------
+				const int32 level;
+				T median, max, min;
+				std::vector<FIntVector2> l;
+				std::vector<FIntVector2> h;
+				Bucket(
+					MedianQuadTree* _p, 
+					const FIntVector2& _bmin,
+					const FIntVector2& _bmax,
+					int32 _l
+				) : 
+					p(_p), bmin(_bmin), bmax(_bmax), level(_l) {}
+				void recompute();
+				std::pair<int32, int32> overlap(const FIntVector2& _min, const FIntVector2& _max, T _h) const;
+			};//Bucket
+
+			struct Node {
+				//------------------
+				MedianQuadTree* p = nullptr;
+				FIntVector2 bmin, bmax;
+				//------------------
+				const int32 level;
+				T median, max, min;
+				std::array<T, 2> l, h;
+				std::array<std::variant<std::unique_ptr<Node>, std::unique_ptr<Bucket>>, 4> c;
+				Node(
+					MedianQuadTree* _p,
+					const FIntVector2& _bmin,
+					const FIntVector2& _bmax,
+					int32 _l
+				) :
+					p(_p), bmin(_bmin), bmax(_bmax), level(_l) {}
+				void recompute();
+				std::pair<int32, int32> overlap(const FIntVector2& _min, const FIntVector2& _max, T _h) const;
+			};//Node
+
+			//friend Bucket;
+
+			std::unique_ptr<Node> root;
+
+			const FFTWVector<T>& map;
+			const int32 n0_;
+			const int32 n1_;
+
+			UWorld* world = nullptr;
+
+		public:
+			using TYPE = T;
+			constexpr static bool USE_SIMD = SIMD;
+			constexpr static bool USE_DEBUG = DEBUG;
+			//----------------
+			MedianQuadTree(
+				Impl::Config<T, SIMD, DEBUG>& _config,
+				const FFTWVector<T>& _map,
+				const int32 _min_ext = 12
+			);
+
+			void recompute();
+			std::pair<int32, int32> check_height(const FIntVector& _pos, const FIntVector2& _ext) const;
+
+		};//MedianQuadTree
+
+		//---------------------------------
+
 		template<class T, bool SIMD, bool DEBUG>
 		class TURBOPACKER_API HeightMap {
 
@@ -382,6 +458,7 @@ namespace TurboPacker {
 
 			//map
 			FFTWVector<T> map;
+			FFTWVector<T> map_log;
 
 			//signal
 			FFTWVector<std::complex<T>> signal_c;
@@ -467,6 +544,12 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = Test)
 	void TestKernel();
 
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = Test)
+	void BenchConv();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = Test)
+	void QuadTreeTester();
+
 };//ASpectralTester
 
 UCLASS(Blueprintable, BlueprintType)
@@ -499,7 +582,7 @@ TurboPacker::Spectral::Impl::Config<T_, SIMD_, DEBUG_>::Config(
 	p_n1_(Detail::power_of_2(int32(std::pow(std::floor(std::sqrt(T(2 * _n1 - 1))) + 1, 2)))),
 	p_n1_c_(p_n1_ / 2 + 1),
 	h_(_h),
-	off0_((p_n0_ - n0_) / 2), off1_((p_n1_ - n1_) / 2),
+	off0_(1), off1_(1),
 	SCALE(1. / T(p_n0_ * p_n1_))
 {
 	using namespace Util;
@@ -555,6 +638,7 @@ template<class T_, bool SIMD_, bool DEBUG_>
 void TurboPacker::Spectral::Impl::fft_signal(
 	Config<T_, SIMD_, DEBUG_>& _c,
 	const FFTWVector<T_>& _map,
+	const FFTWVector<T_>& _map_log,
 	FFTWVector<std::complex<T_>>& _out,
 	FFTWVector<std::complex<T_>>& _out_log
 ) {
@@ -562,41 +646,11 @@ void TurboPacker::Spectral::Impl::fft_signal(
 	using namespace Debug;
 	using namespace Detail;
 
-	if constexpr (!SIMD_) {
-		//copy heightmap
-		for (int32 n0 = 0; n0 < _c.n0_; ++n0) {
-			for (int32 n1 = 0; n1 < _c.n1_; ++n1) {
-				const int32 i1 = n1 + n0 * _c.n1_;
-				const int32 i2 = (n1 + _c.off1_) + (n0 + _c.off0_) * _c.p_n1_;
-				_c.temp1_r[i2] = _map[i1];
-				_c.temp2_r[i2] = std::log(_map[i1] + 1.);
-			}
-		}
-		//border n0
-		for (int32 n0 = -1; n0 <= _c.n0_; ++n0) {
-			const int32 i1 = (-1 + _c.off1_) + (n0 + _c.off0_) * _c.p_n1_;
-			const int32 i2 = (_c.n1_ + _c.off1_) + (n0 + _c.off0_) * _c.p_n1_;
-			_c.temp1_r[i1] = T_(_c.h_);
-			_c.temp1_r[i2] = T_(_c.h_);
-			_c.temp2_r[i1] = std::log(T_(_c.h_) + 1);
-			_c.temp2_r[i2] = std::log(T_(_c.h_) + 1);
-		}
-		//border n1
-		for (int32 n1 = -1; n1 <= _c.n1_; ++n1) {
-			const int32 i1 = (n1 + _c.off1_) + (-1 + _c.off0_) * _c.p_n1_;
-			const int32 i2 = (n1 + _c.off1_) + (_c.n0_ + _c.off0_) * _c.p_n1_;
-			_c.temp1_r[i1] = T_(_c.h_);
-			_c.temp1_r[i2] = T_(_c.h_);
-			_c.temp2_r[i1] = std::log(T_(_c.h_) + 1);
-			_c.temp2_r[i2] = std::log(T_(_c.h_) + 1);
-		}
+	if constexpr (DEBUG_) image_real<T_, false>(_c.p_n0_, _c.p_n1_, const_cast<T_*>(_map.data()), "1_signal_linear.png");
+	if constexpr (DEBUG_) image_real<T_, false>(_c.p_n0_, _c.p_n1_, const_cast<T_*>(_map_log.data()), "1_signal_log.png");
 
-		if constexpr (DEBUG_) image_real<T_, false>(_c.p_n0_, _c.p_n1_, _c.temp1_r.data(), "1_signal_linear.png");
-		if constexpr (DEBUG_) image_real<T_, false>(_c.p_n0_, _c.p_n1_, _c.temp1_r.data(), "1_signal_log.png");
-
-		FFTWExecutor<T_>::r2c(_c.plan_r2c.get(), _c.temp1_r.data(), _out.data());
-		FFTWExecutor<T_>::r2c(_c.plan_r2c.get(), _c.temp2_r.data(), _out_log.data());
-	}
+	FFTWExecutor<T_>::r2c(_c.plan_r2c.get(), const_cast<T_*>(_map.data()), _out.data());
+	FFTWExecutor<T_>::r2c(_c.plan_r2c.get(), const_cast<T_*>(_map_log.data()), _out_log.data());
 
 }//TurboPacker::Spectral::Impl::correlate_signal
 
@@ -776,26 +830,439 @@ void TurboPacker::Spectral::Impl::extract_solution(
 	}
 }//TurboPacker::Spectral::Impl::extract_solution
 
+//------------------------------------------------
+//------------------ MedianQuadTree --------------
+//------------------------------------------------
+
+template<class T, bool SIMD, bool DEBUG>
+void TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::Bucket::recompute() {
+
+	max = -std::numeric_limits<T>::infinity();
+	min = std::numeric_limits<T>::infinity();
+
+	std::vector<std::pair<T, FIntVector2>> m;
+	m.reserve((bmax.X - bmin.X + 1) * (bmax.Y - bmin.Y + 1));
+
+	for (int32 n0 = bmin.X; n0 <= bmax.X; ++n0) {
+		for (int32 n1 = bmin.Y; n1 < bmax.Y; ++n1) {
+			const int32 i = n1 + n0 * p->n1_;
+			m.push_back({ p->map[i], { n0, n1} });
+			max = std::max(max, p->map[i]);
+			min = std::min(max, p->map[i]);
+		}
+	}
+
+	std::sort(m.begin(), m.end(), [](const auto& _e1, const auto& _e2) {
+		return std::get<0>(_e1) < std::get<0>(_e2);
+	});
+
+	if (m.size() % 2 == 0) {
+		const int32 idx = (m.size() + 1) / 2;
+		median = std::get<0>(m[idx]);
+
+		l.clear();
+		for (int32 j = 0; j <= idx; ++j)
+			l.push_back(std::get<1>(m[j]));
+
+		h.clear();
+		for (int32 j = idx + 1; j < m.size(); ++j)
+			h.push_back(std::get<1>(m[j]));
+
+	} else {
+		const int32 idx1 = m.size() / 2;
+		const int32 idx2 = idx1 + 1;
+		median = (std::get<0>(m[idx1]) + std::get<0>(m[idx2])) * 0.5;
+
+		l.clear();
+		for (int32 j = 0; j <= idx1; ++j)
+			l.push_back(std::get<1>(m[j]));
+
+		h.clear();
+		for (int32 j = idx2; j < m.size(); ++j)
+			h.push_back(std::get<1>(m[j]));
+	}
+
+	std::cout << level << " - " << median << std::endl;
+
+}//Bucket::recompute
+
+template<class T, bool SIMD, bool DEBUG>
+std::pair<int32, int32> TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::Bucket::overlap(
+	const FIntVector2& _min, 
+	const FIntVector2& _max, 
+	T _h
+) const {
+
+	const auto contains = [&](int32 _x, int32 _y) {
+		return _min.X <= _x && _x >= _max.X && _min.Y <= _y && _y >= _max.Y;
+	};
+
+	if (_h > median) {
+
+		int32 low = l.size();
+		int32 high = 0;
+
+		for (const FIntVector2 pos : h) {
+			const int32 i = pos.Y + pos.X * p->n1_;
+			if (!contains(pos.X, pos.Y)) continue;
+
+			if (p->map[i] >= _h)
+				high++;
+			if (p->map[i] < _h)
+				low++;
+		}
+
+		return { low, high };
+
+	} else {
+
+		int32 low = 0;
+		int32 high = h.size();
+
+		for (const FIntVector2 pos : l) {
+			const int32 i = pos.Y + pos.X * p->n1_;
+			if (!contains(pos.X, pos.Y)) continue;
+
+			if (p->map[i] >= _h)
+				high++;
+			if (p->map[i] < _h)
+				low++;
+		}
+
+		return { low, high };
+
+	}
+}//Bucket::overlap
+
+//--------------
+
+template<class T, bool SIMD, bool DEBUG>
+void TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::Node::recompute() {
+
+	for (int32 i = 0; i < 4; ++i){
+		switch (c[0].index()) {
+			case 0:
+				std::get<0>(c[i])->recompute();
+			break;
+			case 1:
+				std::get<1>(c[i])->recompute();
+			break;
+		}
+	}
+
+	//--------------
+
+	std::vector<std::pair<int32, T>> m(4);
+
+	switch (c[0].index()) {
+		case 0:
+		{			
+			for (int32 i = 0; i < 4; ++i)
+				m.push_back({ i, std::get<0>(c[i])->median });
+		}
+		break;
+		case 1:
+		{
+			for (int32 i = 0; i < 4; ++i)
+				m.push_back({ i, std::get<1>(c[i])->median });
+		}
+		break;
+	}
+
+	std::sort(m.begin(), m.end(), [](const auto& _e1, const auto& _e2) {
+		return std::get<0>(_e1) < std::get<0>(_e2);
+	});
+
+	median = (std::get<1>(m[1]) + std::get<1>(m[2])) * 0.5;
+	min = std::get<1>(m[0]);
+	max = std::get<1>(m[3]);
+
+	l[0] = std::get<1>(m[0]);
+	l[1] = std::get<1>(m[1]);
+
+	h[0] = std::get<1>(m[2]);
+	h[1] = std::get<1>(m[3]);
+
+	std::cout << level << " - " << median << std::endl;
+	
+}//Node::recompute
+
+template<class T, bool SIMD, bool DEBUG>
+std::pair<int32, int32> TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::Node::overlap(
+	const FIntVector2& _min,
+	const FIntVector2& _max,
+	T _h
+) const {
+
+	if (_min.X > bmin.X || _min.X < bmax.X || _min.Y > bmin.Y || _min.Y < bmax.Y) {
+		int32 low = 0;
+		int32 high = 0;
+		switch (c[0].index()) {
+			case 0:
+			{
+				for (int32 i = 0; i < 4; ++i) {
+					const auto r = std::get<0>(c[i])->overlap(_min, _max, T);
+					low += std::get<0>(r);
+					high += std::get<0>(r);
+				}
+			}
+			break;
+			case 1:
+			{
+				for (int32 i = 0; i < 4; ++i) {
+					const auto r = std::get<1>(c[i])->overlap(_min, _max, T);
+					low += std::get<1>(r);
+					high += std::get<1>(r);
+				}
+			}
+			break;
+		}
+		return { low, high };
+	}
+
+	//--------------------
+
+	if (_h > median) {
+
+		int32 low = l.size();
+		int32 high = 0;
+
+		switch (c[0].index()) {
+			case 0:
+			{
+				const auto r1 = std::get<0>(h[0])->overlap(_min, _max, _h);
+				const auto r2 = std::get<0>(h[1])->overlap(_min, _max, _h);
+				low += std::get<0>(r1) + std::get<0>(r2);
+				high += std::get<1>(r1) + std::get<1>(r2);
+			}
+			break;
+			case 1:
+			{
+				const auto r1 = std::get<1>(h[0])->overlap(_min, _max, _h);
+				const auto r2 = std::get<1>(h[1])->overlap(_min, _max, _h);
+				low += std::get<0>(r1) + std::get<0>(r2);
+				high += std::get<1>(r1) + std::get<1>(r2);
+			}
+			break;
+		}
+		
+		return { low, high };
+
+	} else {
+
+		int32 low = 0;
+		int32 high = h.size();
+
+		switch (c[0].index()) {
+			case 0:
+			{
+				const auto r1 = std::get<0>(l[0])->overlap(_min, _max, _h);
+				const auto r2 = std::get<0>(l[1])->overlap(_min, _max, _h);
+				low += std::get<0>(r1) + std::get<0>(r2);
+				high += std::get<1>(r1) + std::get<1>(r2);
+			}
+			break;
+			case 1:
+			{
+				const auto r1 = std::get<1>(l[0])->overlap(_min, _max, _h);
+				const auto r2 = std::get<1>(l[1])->overlap(_min, _max, _h);
+				low += std::get<0>(r1) + std::get<0>(r2);
+				high += std::get<1>(r1) + std::get<1>(r2);
+			}
+			break;
+		}
+
+		return { low, high };
+
+	}
+
+}//Node::overlap
+
+//--------------
+
+template<class T, bool SIMD, bool DEBUG>
+TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::MedianQuadTree(
+	Impl::Config<T, SIMD, DEBUG>& _c,
+	const FFTWVector<T>& _map,
+	const int32 _min_ext
+) : map(_map), n0_(_c.n0_), n1_(_c.n1_), world(_c.world) {
+
+	const int32 s = std::max(_c.n0_, _c.n1_);
+	int32 level = 1;
+	int32 t = _min_ext;
+	while (t < s) {
+		level++;
+		t *= 2;
+	}
+	std::cout << "s: " << s << std::endl;
+	std::cout << "t: " << t << std::endl;
+	std::cout << "level: " << level << std::endl;
+	std::cout << "----------------" << std::endl;
+	//--------------
+	root = std::make_unique<Node>(this, FIntVector2(0), FIntVector2(t), 1);
+
+	std::queue<Node*> q;
+	q.push(root.get());
+
+	int32 n = 0;
+	int32 b = 0;
+	while (!q.empty()) {
+
+		Node* n = q.front();
+		q.pop();
+
+		c++;
+
+		/*
+		children:
+			0 | 1
+			2 | 3
+		*/
+		const FIntVector2 min_0(n->bmin.X, n->bmin.Y + (n->bmax.Y - n->bmin.Y) / 2);
+		const FIntVector2 max_0(n->bmin.X + (n->bmax.X - n->bmin.X) / 2, n->bmax.Y);
+
+		const FIntVector2 min_1(n->bmin.X + (n->bmax.X - n->bmin.X) / 2, n->bmin.Y + (n->bmax.Y - n->bmin.Y) / 2);
+		const FIntVector2 max_1 = n->bmax;
+
+		const FIntVector2 min_2 = n->bmin;
+		const FIntVector2 max_2(n->bmin.X + (n->bmax.X - n->bmin.X) / 2, n->bmin.Y + (n->bmax.Y - n->bmin.Y) / 2);
+
+		const FIntVector2 min_3(n->bmin.X + (n->bmax.X - n->bmin.X) / 2, n->bmin.Y);
+		const FIntVector2 max_3(n->bmax.X, n->bmin.Y + (n->bmax.Y - n->bmin.Y) / 2);
+
+		//std::cout << "---- " << n->level + 1 << " ----" << std::endl;
+		//std::cout << n->bmin << n->bmax << std::endl;
+		//std::cout << "0: " << min_0 << max_0 << std::endl;
+		//std::cout << "1: " << min_1 << max_1 << std::endl;
+		//std::cout << "2: " << min_2 << max_2 << std::endl;
+		//std::cout << "3: " << min_3 << max_3 << std::endl;
+		//std::cout << "----------------" << std::endl;
+
+		if constexpr (DEBUG) {
+			DrawDebugBox(world,
+				FVector(n->bmin.X + (n->bmax.X - n->bmin.X) / 2, n->bmin.Y + (n->bmax.Y - n->bmin.Y) / 2, (n->bmax.X - n->bmin.X) / 2),
+				FVector((n->bmax.X - n->bmin.X) / 2),
+				FColor::Blue, true);
+		}
+
+		if (n->level == level-1) {
+
+			n += 4;
+
+			// --- 0 ---
+			n->c[0] = std::make_unique<Bucket>(this, min_0, max_0, n->level + 1);
+			
+			// --- 1 ---
+			n->c[1] = std::make_unique<Bucket>(this, min_1, max_1, n->level + 1);
+
+			// --- 2 ---
+			n->c[2] = std::make_unique<Bucket>(this, min_2, max_2, n->level + 1);
+
+			// --- 3 ---
+			n->c[3] = std::make_unique<Bucket>(this, min_3, max_3, n->level + 1);
+
+			if constexpr (DEBUG) {
+
+				DrawDebugBox(world,
+					FVector(min_0.X + (max_0.X - min_0.X) / 2, min_0.Y + (max_0.Y - min_0.Y) / 2, (max_0.X - min_0.X) / 2),
+					FVector((max_0.X - min_0.X) / 2),
+					FColor::Green, true);
+
+				DrawDebugBox(world,
+					FVector(min_1.X + (max_1.X - min_1.X) / 2, min_1.Y + (max_1.Y - min_1.Y) / 2, (max_1.X - min_1.X) / 2),
+					FVector((max_1.X - min_1.X) / 2),
+					FColor::Green, true);
+
+				DrawDebugBox(world,
+					FVector(min_2.X + (max_2.X - min_2.X) / 2, min_2.Y + (max_2.Y - min_2.Y) / 2, (max_2.X - min_2.X) / 2),
+					FVector((max_2.X - min_2.X) / 2),
+					FColor::Green, true);
+
+				DrawDebugBox(world,
+					FVector(min_3.X + (max_3.X - min_3.X) / 2, min_3.Y + (max_3.Y - min_3.Y) / 2, (max_3.X - min_3.X) / 2),
+					FVector((max_3.X - min_3.X) / 2),
+					FColor::Green, true);
+			}
+
+		} else {
+
+			n->c[0] = std::make_unique<Node>(this, min_0, max_0, n->level + 1);
+			q.push(std::get<0>(n->c[0]).get());
+
+			n->c[1] = std::make_unique<Node>(this, min_1, max_1, n->level + 1);
+			q.push(std::get<0>(n->c[1]).get());
+
+			n->c[2] = std::make_unique<Node>(this, min_2, max_2, n->level + 1);
+			q.push(std::get<0>(n->c[2]).get());
+
+			n->c[3] = std::make_unique<Node>(this, min_3, max_3, n->level + 1);
+			q.push(std::get<0>(n->c[3]).get());
+
+		}
+	}
+
+	if constexpr (DEBUG) {
+		std::cout << "Nodes: " << n << std::endl;
+		std::cout << "Buckets: " << b << std::endl;
+	}
+
+}//TurboPacker::Spectral::MedianQuadTree::MedianQuadTree
+
+template<class T, bool SIMD, bool DEBUG>
+void TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::recompute() {
+	root->recompute();
+}//TurboPacker::Spectral::MedianQuadTree::push
+
+template<class T, bool SIMD, bool DEBUG>
+std::pair<int32, int32> TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::check_height(
+	const FIntVector& _pos, 
+	const FIntVector2& _ext
+) const {
+	return root->overlap(
+		FIntVector2(_pos.X, _pos.Y) - _ext,
+		FIntVector2(_pos.X, _pos.Y) + _ext,
+		_pos.Z);
+}//TurboPacker::Spectral::MedianQuadTree::check_height
 
 //------------------------------------------------
 //------------------ HeightMap -------------------
 //------------------------------------------------
 
 template<class T, bool SIMD, bool DEBUG>
-TurboPacker::Spectral::HeightMap<T, SIMD, DEBUG> ::HeightMap(const int32 _n0, const int32 _n1, const int32 _h) {
+TurboPacker::Spectral::HeightMap<T, SIMD, DEBUG>::HeightMap(const int32 _n0, const int32 _n1, const int32 _h) {
 	using namespace Util;
 	using namespace Detail;
-
+	//-------------------------
 	config_ = std::make_unique<Impl::Config<T, SIMD, DEBUG>>(_n0, _n1, _h);
-
-	map.resize(_n0 * _n1);
+	//-------------------------
+	map.resize(config_->p_n0_ * config_->p_n1_);
+	map_log.resize(config_->p_n0_ * config_->p_n1_);
 	std::fill(map.begin(), map.end(), 0);
+	std::fill(map_log.begin(), map_log.end(), 1.);
+	//-------------------------
+	//border n0
+	for (int32 n0 = 0; n0 <= config_->n0_ + 1; ++n0) {
+		const int32 i1 = n0 * config_->p_n1_;
+		const int32 i2 = config_->n1_ + 1 + n0 * config_->p_n1_;
+		map[i1] = T(config_->h_);
+		map[i2] = T(config_->h_);
+		map_log[i1] = std::log(T(config_->h_) + 1);
+		map_log[i2] = std::log(T(config_->h_) + 1);
+	}
+	//border n1
+	for (int32 n1 = 0; n1 <= config_->n1_ + 1; ++n1) {
+		const int32 i1 = n1;
+		const int32 i2 = n1 + (config_->n0_ + 1) * config_->p_n1_;
+		map[i1] = T(config_->h_);
+		map[i2] = T(config_->h_);
+		map_log[i1] = std::log(T(config_->h_) + 1);
+		map_log[i2] = std::log(T(config_->h_) + 1);
+	}
 	//-------------------------
 	signal_c.resize(config_->p_n0_ * config_->p_n1_c_);
 	signal_log_c.resize(config_->p_n0_ * config_->p_n1_c_);
 	kernel_c.resize(config_->p_n0_ * config_->p_n1_c_);
 	border_c.resize(config_->p_n0_ * config_->p_n1_c_);
-
 	//-------------------------
 	costf = [](int32 _n0, int32 _n1, int32 _h, int32 _c) {
 		return std::pow<T>(T(_h), 3) + T(_n0) + T(_n1) - _c;
@@ -809,7 +1276,7 @@ std::vector<std::tuple<FIntVector, T, int32>> TurboPacker::Spectral::HeightMap<T
 	using namespace Detail;
 	using namespace Impl;
 
-	fft_signal<T, SIMD, DEBUG>(*config_, map, signal_c, signal_log_c);
+	fft_signal<T, SIMD, DEBUG>(*config_, map, map_log, signal_c, signal_log_c);
 
 
 
