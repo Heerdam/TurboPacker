@@ -855,35 +855,251 @@ void ASpectralTester::QuadTreeTester() {
 
 	Clear();
 
-	using Con = Spectral::Impl::Config<double, false, true>;
+	using Con = Spectral::Impl::Config<double, false, false>;
 
-	constexpr int32 mapX = 20;
-	constexpr int32 mapY = 20;
+	constexpr int32 map0 = 30;
+	constexpr int32 map1 = 30;
 	constexpr int32 maph = 100;
 
-	Con config (mapX, mapY, maph);
+	Con config (map0, map1, maph);
 	config.world = world;
 
+	// n1: x, n0: y
+
 	FFTWVector<Con::T> map;
-	map.resize(mapX * mapY);
+	map.resize(map0 * map0);
 	std::fill(map.begin(), map.end(), 0.);
+
+	//-----------------------
+
 	for (int32 n0 = 0; n0 < 10; ++n0) {
 		for (int32 n1 = 0; n1 < 10; ++n1) {
-			const int32 i = n1 + n0 * mapY;
+			const int32 i = n1 + n0 * map1;
 			map[i] = 1.;
 		}
 	}
 
 	for (int32 n0 = 10; n0 < 20; ++n0) {
 		for (int32 n1 = 10; n1 < 20; ++n1) {
-			const int32 i = n1 + n0 * mapY;
+			const int32 i = n1 + n0 * map1;
 			map[i] = 2.;
 		}
 	}
 
+	for (int32 n0 = 20; n0 < 30; ++n0) {
+		for (int32 n1 = 20; n1 < 30; ++n1) {
+			const int32 i = n1 + n0 * map1;
+			map[i] = 3.;
+		}
+	}
+
+	//-----------------------
+
 	MedianQuadTree<Con::T, Con::SIMD, Con::DEBUG> tree (config, map, 10);
 	tree.recompute();
 
+	const auto[l, h] = tree.check_height(FIntVector(15, 15, 2), FIntVector2(10, 10));
 
+	std::cout << "l: " << l << std::endl;
+	std::cout << "h: " << h << std::endl;
 
 }//ASpectralTester::QuadTreeTester
+
+void ASpectralTester::QuadTreeTester2() {
+
+	using namespace Util;
+	using namespace TurboPacker;
+	using namespace Spectral;
+
+	UWorld* world = GetWorld();
+	if (!world) return;
+
+	Clear();
+
+	//---------------------
+
+	//Rollcage map(1200, 800, 1700);
+	using Con = Spectral::Impl::Config<double, false, false>;
+
+	constexpr int32 map0 = 800;
+	constexpr int32 map1 = 1200;
+	constexpr int32 maph = 1700;
+
+	FFTWVector<Con::T> map;
+	map.resize(map0 * map1);
+
+	//---------------------
+
+	const auto naive = [&](
+		const int32 _p0,
+		const int32 _p1,
+		const int32 _ext,
+		const int32 _h
+		) {
+			const int32 min_n0 = _p0 - _ext;
+			const int32 max_n0 = _p0 + _ext;
+
+			const int32 min_n1 = _p1 - _ext;
+			const int32 max_n1 = _p1 + _ext;
+
+			int32 h = 0;
+			int32 l = 0;
+			for (int32 n0 = min_n0; n0 < max_n0; ++n0) {
+				for (int32 n1 = min_n1; n1 < max_n1; ++n1) {
+					const int32 i = n1 + n0 * map1;
+					if (map[i] >= _h) h++;
+					else l++;
+				}
+			}
+
+			return std::make_pair(l, h);
+		};
+
+	//---------------------
+
+	Con config(map0, map1, maph);
+	config.world = world;
+
+	MedianQuadTree<Con::T, Con::SIMD, Con::DEBUG> tree(config, map, 10);
+
+	for (int32 k = 0; k < 10; ++k) {
+		std::cout << "--------------------------" << std::endl;
+		std::cout << "complexity: " << k << std::endl;
+
+		for (int32 n0 = k * 75; n0 < 75 + k * 75; ++n0) {
+			for (int32 n1 = k * 75; n1 < 75 + k * 75; ++n1) {
+				const int32 i = n1 + n0 * map1;
+				map[i] = k * 8;
+			}
+		}
+
+		tree.recompute();
+
+		//---------------------
+		const auto [l1, h1] = naive(map0 / 2, map1 / 2, 25 + k * 20, k * 5);
+		const auto [l2, h2] = tree.check_height(FIntVector(map0 / 2, map1 / 2, k * 5), FIntVector2(25 + k * 20));
+		
+		if (l1 == l2 && h1 == h2) {
+			std::cout << "correct" << std::endl;
+		} else {
+			std::cout << "false. exp: " << l1 << ", " << h1 << " - res: " << l2 << ", " << h2 << std::endl;
+		}
+	}
+
+}//ASpectralTester::QuadTreeBench
+
+void ASpectralTester::QuadTreeBench() {
+
+	using namespace Util;
+	using namespace TurboPacker;
+	using namespace Spectral;
+
+	UWorld* world = GetWorld();
+	if (!world) return;
+
+	Clear();
+
+	//---------------------
+
+	//Rollcage map(1200, 800, 1700);
+	using Con = Spectral::Impl::Config<double, false, false>;
+
+	constexpr int32 map0 = 800;
+	constexpr int32 map1 = 1200;
+	constexpr int32 maph = 1700;
+
+	FFTWVector<Con::T> map;
+	map.resize(map0 * map1);
+
+	//---------------------
+
+	const auto naive = [&](
+		const int32 _p0,
+		const int32 _p1,
+		const int32 _ext,
+		const int32 _h
+		) {
+			const int32 min_n0 = _p0 - _ext;
+			const int32 max_n0 = _p0 + _ext;
+
+			const int32 min_n1 = _p1 - _ext;
+			const int32 max_n1 = _p1 + _ext;
+
+			int32 h = 0;
+			int32 l = 0;
+			for (int32 n0 = min_n0; n0 < max_n0; ++n0) {
+				for (int32 n1 = min_n1; n1 < max_n1; ++n1) {
+					const int32 i = n1 + n0 * map1;
+					if (map[i] >= _h) h++;
+					else l++;
+				}
+			}
+
+			return std::make_pair(l, h);
+		};
+
+	//---------------------
+
+	Con config(map0, map1, maph);
+	config.world = world;
+
+	MedianQuadTree<Con::T, Con::SIMD, Con::DEBUG> tree(config, map, 10);
+
+	for (int32 k = 0; k < 10; ++k) {
+		std::cout << "--------------------------" << std::endl;
+		std::cout << "complexity: " << k << std::endl;
+
+		for (int32 n0 = k*75; n0 < 75 + k * 75; ++n0) {
+			for (int32 n1 = k * 75; n1 < 75 + k * 75; ++n1) {
+				const int32 i = n1 + n0 * map1;
+				map[i] = k * 15;
+			}
+		}
+
+		tree.recompute();
+
+		//---------------------
+		int32 x = 0;
+		std::cout << "Naive" << std::endl;
+		for (int32 i = 0; i < 10; ++i) {
+
+			double t = 0;
+
+			for (int32 j = 0; j < 15; ++j) {
+				const auto start = std::chrono::high_resolution_clock::now();
+
+				const auto [l, h] = naive(map0 / 2, map1 / 2, 25 + i * 20, i * 20);
+				x += l + h;
+				const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
+				t += ee.count();
+
+				//std::cout << l << ", " << h << std::endl;
+			}
+			std::cout << i << ": " << t / 15. << "s" << std::endl;
+
+		}
+
+		//---------------------
+
+		std::cout << "Quad" << std::endl;
+		for (int32 i = 0; i < 10; ++i) {
+
+			double t = 0;
+
+			for (int32 j = 0; j < 15; ++j) {
+				const auto start = std::chrono::high_resolution_clock::now();
+
+				const auto [l, h] = tree.check_height(FIntVector(map0 / 2, map1 / 2, i * 20), FIntVector2(25 + i * 20));
+
+				const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
+				t += ee.count();
+				x += l + h;
+				//std::cout << l << ", " << h << std::endl;
+			}
+			std::cout << i << ": " << t / 15. << "s" << std::endl;
+		}
+
+		std::cout << x << std::endl;
+	}
+
+}//ASpectralTester::QuadTreeBench

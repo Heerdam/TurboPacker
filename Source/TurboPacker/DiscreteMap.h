@@ -364,6 +364,7 @@ namespace TurboPacker {
 				//------------------
 				const int32 level;
 				T median, max, min;
+				bool isFlat = false;
 				std::vector<FIntVector2> l;
 				std::vector<FIntVector2> h;
 				Bucket(
@@ -384,7 +385,8 @@ namespace TurboPacker {
 				//------------------
 				const int32 level;
 				T median, max, min;
-				std::array<T, 2> l, h;
+				bool isFlat = false;
+				std::array<int32, 2> l, h;
 				std::array<std::variant<std::unique_ptr<Node>, std::unique_ptr<Bucket>>, 4> c;
 				Node(
 					MedianQuadTree* _p,
@@ -404,6 +406,9 @@ namespace TurboPacker {
 			const FFTWVector<T>& map;
 			const int32 n0_;
 			const int32 n1_;
+
+			const int32 extend;
+			int32 maxLevel;
 
 			UWorld* world = nullptr;
 
@@ -549,6 +554,12 @@ public:
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = Test)
 	void QuadTreeTester();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = Test)
+	void QuadTreeTester2();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = Test)
+	void QuadTreeBench();
 
 };//ASpectralTester
 
@@ -836,16 +847,17 @@ void TurboPacker::Spectral::Impl::extract_solution(
 
 template<class T, bool SIMD, bool DEBUG>
 void TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::Bucket::recompute() {
-
+	// n1: x, n0: y
 	max = -std::numeric_limits<T>::infinity();
 	min = std::numeric_limits<T>::infinity();
 
 	std::vector<std::pair<T, FIntVector2>> m;
 	m.reserve((bmax.X - bmin.X + 1) * (bmax.Y - bmin.Y + 1));
 
-	for (int32 n0 = bmin.X; n0 <= bmax.X; ++n0) {
-		for (int32 n1 = bmin.Y; n1 < bmax.Y; ++n1) {
+	for (int32 n0 = bmin.Y; n0 < bmax.Y; ++n0) {
+		for (int32 n1 = bmin.X; n1 < bmax.X; ++n1) {
 			const int32 i = n1 + n0 * p->n1_;
+			if (i > p->map.size()) continue;
 			m.push_back({ p->map[i], { n0, n1} });
 			max = std::max(max, p->map[i]);
 			min = std::min(max, p->map[i]);
@@ -882,7 +894,10 @@ void TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::Bucket::recompute() 
 			h.push_back(std::get<1>(m[j]));
 	}
 
-	std::cout << level << " - " << median << std::endl;
+	if constexpr (DEBUG) {
+		std::cout << level << " - " << median << std::endl;
+		std::cout << l.size() << " - " << h.size() << std::endl;
+	}
 
 }//Bucket::recompute
 
@@ -894,9 +909,39 @@ std::pair<int32, int32> TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::B
 ) const {
 
 	const auto contains = [&](int32 _x, int32 _y) {
-		return _min.X <= _x && _x >= _max.X && _min.Y <= _y && _y >= _max.Y;
+		return _min.X <= _x && _x < _max.X && _min.Y <= _y && _y < _max.Y;
 	};
 
+	//partial overlap
+	if (_min.X > bmin.X || _max.X < bmax.X || _min.Y > bmin.Y || _max.Y < bmax.Y) {
+
+		int32 low = 0;
+		int32 high = 0;
+
+		for (int32 n0 = std::max(bmin.Y, _min.Y); n0 < std::min(bmax.Y, _max.Y); ++n0) {
+			for (int32 n1 = std::max(bmin.X, _min.X); n1 < std::min(bmax.X, _max.X); ++n1) {
+				const int32 i = n0 + n1 * p->n1_;
+				if (i > p->map.size()) continue;
+				if (p->map[i] >= _h) high++;
+				else low++;
+			}
+		}
+
+		return { low, high };
+
+	}
+
+	//--------------------
+
+	if (isFlat) {
+
+		if (_h >= median) return { 0, l.size() + h.size() };
+		else return { l.size() + h.size(), 0 };
+
+	}
+	
+	//--------------------
+	
 	if (_h > median) {
 
 		int32 low = l.size();
@@ -932,6 +977,7 @@ std::pair<int32, int32> TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::B
 		return { low, high };
 
 	}
+
 }//Bucket::overlap
 
 //--------------
@@ -952,7 +998,7 @@ void TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::Node::recompute() {
 
 	//--------------
 
-	std::vector<std::pair<int32, T>> m(4);
+	std::vector<std::pair<int32, T>> m;
 
 	switch (c[0].index()) {
 		case 0:
@@ -970,21 +1016,23 @@ void TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::Node::recompute() {
 	}
 
 	std::sort(m.begin(), m.end(), [](const auto& _e1, const auto& _e2) {
-		return std::get<0>(_e1) < std::get<0>(_e2);
+		return std::get<1>(_e1) < std::get<1>(_e2);
 	});
 
 	median = (std::get<1>(m[1]) + std::get<1>(m[2])) * 0.5;
 	min = std::get<1>(m[0]);
 	max = std::get<1>(m[3]);
 
-	l[0] = std::get<1>(m[0]);
-	l[1] = std::get<1>(m[1]);
+	l[0] = std::get<0>(m[0]);
+	l[1] = std::get<0>(m[1]);
 
-	h[0] = std::get<1>(m[2]);
-	h[1] = std::get<1>(m[3]);
+	h[0] = std::get<0>(m[2]);
+	h[1] = std::get<0>(m[3]);
 
-	std::cout << level << " - " << median << std::endl;
-	
+	if constexpr (DEBUG) {
+		std::cout << level << " - " << median << std::endl;
+	}
+
 }//Node::recompute
 
 template<class T, bool SIMD, bool DEBUG>
@@ -994,25 +1042,27 @@ std::pair<int32, int32> TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::N
 	T _h
 ) const {
 
-	if (_min.X > bmin.X || _min.X < bmax.X || _min.Y > bmin.Y || _min.Y < bmax.Y) {
+	//partial overlap
+	if (_min.X > bmin.X || _max.X < bmax.X || _min.Y > bmin.Y || _max.Y < bmax.Y) {
 		int32 low = 0;
 		int32 high = 0;
 		switch (c[0].index()) {
 			case 0:
 			{
 				for (int32 i = 0; i < 4; ++i) {
-					const auto r = std::get<0>(c[i])->overlap(_min, _max, T);
+					const auto r = std::get<0>(c[i])->overlap(_min, _max, _h);
 					low += std::get<0>(r);
-					high += std::get<0>(r);
+					high += std::get<1>(r);
 				}
 			}
 			break;
 			case 1:
 			{
 				for (int32 i = 0; i < 4; ++i) {
-					const auto r = std::get<1>(c[i])->overlap(_min, _max, T);
-					low += std::get<1>(r);
+					const auto r = std::get<1>(c[i])->overlap(_min, _max, _h);
+					low += std::get<0>(r);
 					high += std::get<1>(r);
+					//std::cout << std::get<0>(r) << ", " << std::get<1>(r) << std::endl;
 				}
 			}
 			break;
@@ -1022,6 +1072,15 @@ std::pair<int32, int32> TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::N
 
 	//--------------------
 
+	if (isFlat) {
+
+		if (_h >= median) return { 0, 4 * (p->maxLevel - level) * p->extend * p->extend };
+		else return { 4 * (p->maxLevel - level) * p->extend * p->extend, 0 };
+
+	}
+
+	//--------------------
+	
 	if (_h > median) {
 
 		int32 low = l.size();
@@ -1030,16 +1089,16 @@ std::pair<int32, int32> TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::N
 		switch (c[0].index()) {
 			case 0:
 			{
-				const auto r1 = std::get<0>(h[0])->overlap(_min, _max, _h);
-				const auto r2 = std::get<0>(h[1])->overlap(_min, _max, _h);
+				const auto r1 = std::get<0>(c[h[0]])->overlap(_min, _max, _h);
+				const auto r2 = std::get<0>(c[h[1]])->overlap(_min, _max, _h);
 				low += std::get<0>(r1) + std::get<0>(r2);
 				high += std::get<1>(r1) + std::get<1>(r2);
 			}
 			break;
 			case 1:
 			{
-				const auto r1 = std::get<1>(h[0])->overlap(_min, _max, _h);
-				const auto r2 = std::get<1>(h[1])->overlap(_min, _max, _h);
+				const auto r1 = std::get<1>(c[h[0]])->overlap(_min, _max, _h);
+				const auto r2 = std::get<1>(c[h[1]])->overlap(_min, _max, _h);
 				low += std::get<0>(r1) + std::get<0>(r2);
 				high += std::get<1>(r1) + std::get<1>(r2);
 			}
@@ -1056,16 +1115,16 @@ std::pair<int32, int32> TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::N
 		switch (c[0].index()) {
 			case 0:
 			{
-				const auto r1 = std::get<0>(l[0])->overlap(_min, _max, _h);
-				const auto r2 = std::get<0>(l[1])->overlap(_min, _max, _h);
+				const auto r1 = std::get<0>(c[l[0]])->overlap(_min, _max, _h);
+				const auto r2 = std::get<0>(c[l[1]])->overlap(_min, _max, _h);
 				low += std::get<0>(r1) + std::get<0>(r2);
 				high += std::get<1>(r1) + std::get<1>(r2);
 			}
 			break;
 			case 1:
 			{
-				const auto r1 = std::get<1>(l[0])->overlap(_min, _max, _h);
-				const auto r2 = std::get<1>(l[1])->overlap(_min, _max, _h);
+				const auto r1 = std::get<1>(c[l[0]])->overlap(_min, _max, _h);
+				const auto r2 = std::get<1>(c[l[1]])->overlap(_min, _max, _h);
 				low += std::get<0>(r1) + std::get<0>(r2);
 				high += std::get<1>(r1) + std::get<1>(r2);
 			}
@@ -1085,50 +1144,52 @@ TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::MedianQuadTree(
 	Impl::Config<T, SIMD, DEBUG>& _c,
 	const FFTWVector<T>& _map,
 	const int32 _min_ext
-) : map(_map), n0_(_c.n0_), n1_(_c.n1_), world(_c.world) {
+) : map(_map), n0_(_c.n0_), n1_(_c.n1_), extend(_min_ext), world(_c.world) {
 
 	const int32 s = std::max(_c.n0_, _c.n1_);
-	int32 level = 1;
+	maxLevel = 1;
 	int32 t = _min_ext;
 	while (t < s) {
-		level++;
+		maxLevel++;
 		t *= 2;
 	}
-	std::cout << "s: " << s << std::endl;
-	std::cout << "t: " << t << std::endl;
-	std::cout << "level: " << level << std::endl;
-	std::cout << "----------------" << std::endl;
+	if constexpr (DEBUG) {
+		std::cout << "s: " << s << std::endl;
+		std::cout << "t: " << t << std::endl;
+		std::cout << "maxLevel: " << maxLevel << std::endl;
+		std::cout << "----------------" << std::endl;
+	}
 	//--------------
 	root = std::make_unique<Node>(this, FIntVector2(0), FIntVector2(t), 1);
 
 	std::queue<Node*> q;
 	q.push(root.get());
 
-	int32 n = 0;
-	int32 b = 0;
+	int32 nc = 0;
+	int32 bc = 0;
 	while (!q.empty()) {
 
 		Node* n = q.front();
 		q.pop();
 
-		c++;
+		nc++;
 
 		/*
 		children:
 			0 | 1
 			2 | 3
 		*/
-		const FIntVector2 min_0(n->bmin.X, n->bmin.Y + (n->bmax.Y - n->bmin.Y) / 2);
-		const FIntVector2 max_0(n->bmin.X + (n->bmax.X - n->bmin.X) / 2, n->bmax.Y);
+		const FIntVector2 min_0 = FIntVector2(n->bmin.X, n->bmin.Y + (n->bmax.Y - n->bmin.Y) / 2);
+		const FIntVector2 max_0 = FIntVector2(n->bmin.X + (n->bmax.X - n->bmin.X) / 2, n->bmax.Y);
 
-		const FIntVector2 min_1(n->bmin.X + (n->bmax.X - n->bmin.X) / 2, n->bmin.Y + (n->bmax.Y - n->bmin.Y) / 2);
+		const FIntVector2 min_1 = FIntVector2(n->bmin.X + (n->bmax.X - n->bmin.X) / 2, n->bmin.Y + (n->bmax.Y - n->bmin.Y) / 2);
 		const FIntVector2 max_1 = n->bmax;
 
 		const FIntVector2 min_2 = n->bmin;
-		const FIntVector2 max_2(n->bmin.X + (n->bmax.X - n->bmin.X) / 2, n->bmin.Y + (n->bmax.Y - n->bmin.Y) / 2);
+		const FIntVector2 max_2 = FIntVector2(n->bmin.X + (n->bmax.X - n->bmin.X) / 2, n->bmin.Y + (n->bmax.Y - n->bmin.Y) / 2);
 
-		const FIntVector2 min_3(n->bmin.X + (n->bmax.X - n->bmin.X) / 2, n->bmin.Y);
-		const FIntVector2 max_3(n->bmax.X, n->bmin.Y + (n->bmax.Y - n->bmin.Y) / 2);
+		const FIntVector2 min_3 = FIntVector2(n->bmin.X + (n->bmax.X - n->bmin.X) / 2, n->bmin.Y);
+		const FIntVector2 max_3 = FIntVector2(n->bmax.X, n->bmin.Y + (n->bmax.Y - n->bmin.Y) / 2);
 
 		//std::cout << "---- " << n->level + 1 << " ----" << std::endl;
 		//std::cout << n->bmin << n->bmax << std::endl;
@@ -1145,9 +1206,9 @@ TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::MedianQuadTree(
 				FColor::Blue, true);
 		}
 
-		if (n->level == level-1) {
+		if (n->level == maxLevel-1) {
 
-			n += 4;
+			bc += 4;
 
 			// --- 0 ---
 			n->c[0] = std::make_unique<Bucket>(this, min_0, max_0, n->level + 1);
@@ -1202,8 +1263,8 @@ TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::MedianQuadTree(
 	}
 
 	if constexpr (DEBUG) {
-		std::cout << "Nodes: " << n << std::endl;
-		std::cout << "Buckets: " << b << std::endl;
+		std::cout << "Nodes: " << nc << std::endl;
+		std::cout << "Buckets: " << bc << std::endl;
 	}
 
 }//TurboPacker::Spectral::MedianQuadTree::MedianQuadTree
@@ -1218,6 +1279,12 @@ std::pair<int32, int32> TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::c
 	const FIntVector& _pos, 
 	const FIntVector2& _ext
 ) const {
+	if constexpr (DEBUG) {
+		DrawDebugBox(world,
+			FVector(_pos.X, _pos.Y, _pos.Z + 5.),
+			FVector(_ext.X, _ext.Y, 5.),
+			FColor::Red, true);
+	}
 	return root->overlap(
 		FIntVector2(_pos.X, _pos.Y) - _ext,
 		FIntVector2(_pos.X, _pos.Y) + _ext,
