@@ -844,6 +844,7 @@ void TurboPacker::Spectral::Impl::extract_solution(
 //------------------------------------------------
 //------------------ MedianQuadTree --------------
 //------------------------------------------------
+// needs debugging!
 
 template<class T, bool SIMD, bool DEBUG>
 void TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::Bucket::recompute() {
