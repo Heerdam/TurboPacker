@@ -318,18 +318,12 @@ namespace TurboPacker {
 				FFTWVector<std::complex<T_>>& _fft_signal_log_out
 			);
 
-			template<class T_, bool SIMD_, bool DEBUG_>
-			void gradients_signal(
-				Config<T_, SIMD_, DEBUG_>& _config,
-				const std::complex<T_>& _signal_in,
-				FFTWVector<std::complex<T_>>& _border_out
-			);
-
 			template<class T_, class VOXLER_, bool SIMD_, bool DEBUG_>
 			void fft_kernel(
 				Config<T_, SIMD_, DEBUG_>& _config,
 				const VOXLER_& _voxler,
-				FFTWVector<std::complex<T_>>& _kernel_out
+				FFTWVector<std::complex<T_>>& _kernel_out,
+				FFTWVector<std::complex<T_>>& _border_kernel_out
 			);
 
 			template<class T_, bool SIMD_, bool DEBUG_>
@@ -348,6 +342,28 @@ namespace TurboPacker {
 				const FFTWVector<T_>& _corr_in,
 				const FFTWVector<T_>& _corr_log_in,
 				FFTWVector<T_>& _sol_out
+			);
+
+			template<class T_, bool SIMD_, bool DEBUG_>
+			void gradients_signal_stencil(
+				Config<T_, SIMD_, DEBUG_>& _config,
+				const FFTWVector<T_>& _sol,
+				FFTWVector<std::complex<T_>>& _border_out
+			);
+
+			template<class T_, bool SIMD_, bool DEBUG_>
+			void gradients_signal(
+				Config<T_, SIMD_, DEBUG_>& _config,
+				const FFTWVector<std::complex<T_>>& _signal_in,
+				FFTWVector<T_>& _border_out
+			);
+
+			template<class T_, bool SIMD_, bool DEBUG_>
+			void proximity(
+				Config<T_, SIMD_, DEBUG_>& _config,
+				const FFTWVector<T_>& _border,
+				const FFTWVector<std::complex<T_>>& _border_kernel,
+				FFTWVector<T_>& _solution
 			);
 
 		}//Impl
@@ -376,6 +392,8 @@ namespace TurboPacker {
 					p(_p), bmin(_bmin), bmax(_bmax), level(_l) {}
 				void recompute();
 				std::pair<int32, int32> overlap(const FIntVector2& _min, const FIntVector2& _max, T _h) const;
+				//------------------
+				std::ostream& operator<< (std::ostream& s) const;
 			};//Bucket
 
 			struct Node {
@@ -397,6 +415,8 @@ namespace TurboPacker {
 					p(_p), bmin(_bmin), bmax(_bmax), level(_l) {}
 				void recompute();
 				std::pair<int32, int32> overlap(const FIntVector2& _min, const FIntVector2& _max, T _h) const;
+				//------------------
+				std::ostream& operator<< (std::ostream& s) const;
 			};//Node
 
 			//friend Bucket;
@@ -425,8 +445,27 @@ namespace TurboPacker {
 
 			void recompute();
 			std::pair<int32, int32> check_height(const FIntVector& _pos, const FIntVector2& _ext) const;
-
+			std::ostream& operator<< (std::ostream& s) const;
 		};//MedianQuadTree
+
+		//---------------------------------
+
+		template<class T>
+		class TURBOPACKER_API BoxStack {
+
+			int32 idd = 0;
+			std::vector<std::tuple<int32, int32, int32>> list;
+			tsl::robin_map<int32, UE::Math::TBox<T>> boxes;
+
+			std::vector<UE::Math::TBox<T>> boxs;
+
+		public:
+
+			void push(const UE::Math::TBox<T>& _box);
+			bool overlap(const UE::Math::TBox<T>& _box) const;
+			bool overlap_naive(const UE::Math::TBox<T>& _box) const;
+
+		};//BoxStack
 
 		//---------------------------------
 
@@ -441,23 +480,8 @@ namespace TurboPacker {
 			using TYPE = T;
 			constexpr static bool USE_SIMD = SIMD;
 			constexpr static bool USE_DEBUG = DEBUG;
-			//domain size
-			//const int32 n0_;
-			//const int32 n1_;
-			//const int32 n1_c_;
-			//const int32 h_;
-
-			////padded size
-			//const int32 p_n0_;
-			//const int32 p_n1_;
-			//const int32 p_n1_c_;
-
-			////offset
-			//const int32 off0_;
-			//const int32 off1_;
 
 		private:
-			//const T SCALE;
 
 			std::unique_ptr<Impl::Config<T, SIMD, DEBUG>> config_;
 
@@ -473,15 +497,15 @@ namespace TurboPacker {
 			FFTWVector<std::complex<T>> kernel_c;
 
 			//sobel
-			
 			FFTWVector<std::complex<T>> border_c;
-
-			//temp
-			
 
 			//plans
 			FFTWPlanPtr<T> plan_r2c;
 			FFTWPlanPtr<T> plan_c2r;
+
+			//------------------------
+
+
 
 			//n0, n1, h, c
 			std::function<T(int32, int32, int32, int32)> costf;
@@ -560,6 +584,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = Test)
 	void QuadTreeBench();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = Test)
+	void BoxStackBench();
 
 };//ASpectralTester
 
@@ -668,7 +695,7 @@ void TurboPacker::Spectral::Impl::fft_signal(
 template<class T_, bool SIMD_, bool DEBUG_>
 void TurboPacker::Spectral::Impl::gradients_signal(
 	Config<T_, SIMD_, DEBUG_>& _c,
-	const std::complex<T_>& _in,
+	const FFTWVector<std::complex<T_>>& _in,
 	FFTWVector<std::complex<T_>>& _out
 ) {
 	using namespace Util;
@@ -825,21 +852,58 @@ void TurboPacker::Spectral::Impl::extract_solution(
 	using namespace Detail;
 
 	if constexpr (!SIMD_) {
-		////--------- Rectified solution --------
-		//for (int32 n0 = 0; n0 < n0_; ++n0) {
-		//	for (int32 n1 = 0; n1 < n1_; ++n1) {
-		//		const int32 i1 = n1 + n0 * n1_;
-		//		const int32 i2 = (n1 + off1_ + h2) + (n0 + off0_ + w2) * p_n1_;
-		//		const int32 i3 = (n1 + off1_) + (n0 + off0_) * p_n1_;
 
-		//		const T expec = T(w * h) * std::log(_c.map[i1] + 1.);
-		//		const T r = std::abs((_c.temp1_r[i2] * SCALE));
-		//		_c.temp2_r[i3] = (FMath::IsNearlyEqual(temp2_r[i3], 1.) && FMath::IsNearlyEqual(expec, r)) ? 1. : 0.;
-		//	}
-		//}
-		//if constexpr (DEBUG) image_real<T, false>(p_n0_, p_n1_, temp2_r.data(), "5_solution.png");
+		////--------- Rectified solution --------
+		for (int32 n0 = 0; n0 < n0_; ++n0) {
+			for (int32 n1 = 0; n1 < n1_; ++n1) {
+				const int32 i1 = n1 + n0 * n1_;
+				const int32 i2 = (n1 + off1_ + h2) + (n0 + off0_ + w2) * p_n1_;
+				const int32 i3 = (n1 + off1_) + (n0 + off0_) * p_n1_;
+
+				const T expec = T(w * h) * std::log(_c.map[i1] + 1.);
+				const T r = std::abs((_c.temp1_r[i2] * SCALE));
+				_c.temp2_r[i3] = (FMath::IsNearlyEqual(temp2_r[i3], 1.) && FMath::IsNearlyEqual(expec, r)) ? 1. : 0.;
+			}
+		}
+		if constexpr (DEBUG) image_real<T, false>(p_n0_, p_n1_, temp2_r.data(), "5_solution.png");
+
+		
 	}
 }//TurboPacker::Spectral::Impl::extract_solution
+
+template<class T_, bool SIMD_, bool DEBUG_>
+void TurboPacker::Spectral::Impl::gradients_signal_stencil(
+	Config<T_, SIMD_, DEBUG_>& _config,
+	const FFTWVector<T_>& _sol,
+	FFTWVector<std::complex<T_>>& _border_out
+) {
+	using namespace Util;
+	using namespace Debug;
+	using namespace Detail;
+
+	if constexpr (!SIMD_) {
+		for (int32 n0 = 0; n0 < n0_; ++n0) {
+			for (int32 n1 = 0; n1 < n1_; ++n1) {
+
+				const int32 i0 = n1 + n0 * _c.n1_;
+
+				const int32 i1 = (n1 - 1) + n0 * _c.n1_;
+				const int32 i2 = n1 + (n0 + 1) * _c.n1_;
+				const int32 i3 = (n1 + 1) + n0 * _c.n1_;
+				const int32 i4 = n1 + (n0 - 1) * _c.n1_;
+
+				_config.temp1_r[i0] = int32(_sol[i1]) + int32(_sol[i3]) == 1 ||
+					int32(_sol[i2]) + int32(_sol[i4]) == 1 ? 1. : 0.;
+
+			}
+		}
+
+		if constexpr (DEBUG_) image_real<T_, false>(_c.p_n0_, _c.p_n1_, _c.temp1_r.data(), "6_border.png");
+		FFTWExecutor<T_>::r2c(_c.plan_r2c.get(), _c.temp1_r.data(), _border_out.data());
+
+	}
+
+}//TurboPacker::Spectral::Impl::gradients_signal_stencil
 
 //------------------------------------------------
 //------------------ MedianQuadTree --------------
@@ -1293,6 +1357,48 @@ std::pair<int32, int32> TurboPacker::Spectral::MedianQuadTree<T, SIMD, DEBUG>::c
 }//TurboPacker::Spectral::MedianQuadTree::check_height
 
 //------------------------------------------------
+//------------------ BoxStack --------------------
+//------------------------------------------------
+
+template<class T>
+void TurboPacker::Spectral::BoxStack<T>::push(const UE::Math::TBox<T>& _box) {
+
+	const int32 min = int32(std::round(_box.Min.Z));
+	const int32 max = int32(std::round(_box.Max.Z));
+
+	boxes.emplace(++idd, _box);
+	list.emplace_back(min, max, idd);
+
+	boxs.push_back(_box);
+
+}//TurboPacker::Spectral::BoxStack::push
+
+template<class T>
+bool TurboPacker::Spectral::BoxStack<T>::overlap(const UE::Math::TBox<T>& _box) const {
+
+	const int32 min = int32(std::round(_box.Min.Z));
+	const int32 max = int32(std::round(_box.Max.Z));
+
+	for (const auto& [h_min, h_max, id] : list) {
+		if (max < h_min || h_max < min) {
+			const auto& b = boxes.find(id).value();
+			if (_box.Intersect(b)) return true;
+		}
+	}
+
+	return false;
+}//TurboPacker::Spectral::BoxStack::overlap
+
+template<class T>
+bool TurboPacker::Spectral::BoxStack<T>::overlap_naive(const UE::Math::TBox<T>& _box) const {
+
+	for (const auto b : boxs)
+		if (_box.Intersect(b)) return true;
+
+	return false;
+}//TurboPacker::Spectral::BoxStack::overlap
+
+//------------------------------------------------
 //------------------ HeightMap -------------------
 //------------------------------------------------
 
@@ -1346,6 +1452,8 @@ std::vector<std::tuple<FIntVector, T, int32>> TurboPacker::Spectral::HeightMap<T
 
 	fft_signal<T, SIMD, DEBUG>(*config_, map, map_log, signal_c, signal_log_c);
 
+
+	FMath::IsNearlyEqual();
 
 
 

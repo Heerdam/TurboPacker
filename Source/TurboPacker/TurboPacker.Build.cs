@@ -18,7 +18,8 @@ public class TurboPacker : ModuleRules
                 Path.Combine(ModuleDirectory, "../../Ext/robin/include"),
                 Path.Combine(ModuleDirectory, "../../Ext/libmorton/include"),
                 Path.Combine(ModuleDirectory, "../../Libs/eigen"),
-                Path.Combine(ModuleDirectory, "../../Libs/FFTW")
+                Path.Combine(ModuleDirectory, "../../Libs/FFTW"),
+                Path.Combine(ModuleDirectory, "../../Libs/mqt/include")
 
             }
         );

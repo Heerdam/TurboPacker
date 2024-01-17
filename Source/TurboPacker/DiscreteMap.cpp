@@ -864,7 +864,7 @@ void ASpectralTester::QuadTreeTester() {
 	Con config (map0, map1, maph);
 	config.world = world;
 
-	// n1: x, n0: y
+	 
 
 	FFTWVector<Con::T> map;
 	map.resize(map0 * map0);
@@ -1103,3 +1103,80 @@ void ASpectralTester::QuadTreeBench() {
 	}
 
 }//ASpectralTester::QuadTreeBench
+
+void ASpectralTester::BoxStackBench() {
+
+	using namespace Util;
+	using namespace TurboPacker;
+	using namespace Spectral;
+
+	UWorld* world = GetWorld();
+	if (!world) return;
+
+	Clear();
+
+	//---------------------
+
+	//Rollcage map(1200, 800, 1700);
+	using Con = Spectral::Impl::Config<double, false, false>;
+
+	constexpr int32 map0 = 800;
+	constexpr int32 map1 = 1200;
+	constexpr int32 maph = 1700;
+
+	BoxStack<double> stack;
+
+	std::random_device rd;
+	Rand rand(rd());
+
+	const auto rand_box = [&]() {
+
+		const double s0 = DistD(100, 700)(rd);
+		const double s1 = DistD(200, 1100)(rd);
+		const double h = DistD(50, 1600)(rd);
+
+		const double p0 = DistD(0, map0 - s0)(rd);
+		const double p1 = DistD(0, map1 - s1)(rd);
+		const double ph = DistD(0, maph - h)(rd);
+
+		return FBox(FVector(p0, p1, ph), FVector(p0 + s0, p1 + s1, ph + h));
+	};
+
+	constexpr int32 sc = 25000;
+
+	std::vector<FBox> test;
+	test.reserve(sc);
+	for (int32 i = 0; i < sc; ++i) {
+		stack.push(rand_box());
+		test.push_back(rand_box());
+	}
+
+	{
+		int32 c = 0;
+		const auto start = std::chrono::high_resolution_clock::now();
+
+		for (int32 i = 0; i < sc; ++i) {
+			if (stack.overlap(FBox(FVector(-50.), FVector(-10.))))
+				c++;
+		}
+
+		const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
+		std::cout << ee.count() << std::endl;
+		std::cout << c << std::endl;
+	}
+
+	{
+		int32 c = 0;
+		const auto start = std::chrono::high_resolution_clock::now();
+
+		for (int32 i = 0; i < sc; ++i) {
+			if (stack.overlap_naive(FBox(FVector(-50.), FVector(-10.))))
+				c++;
+		}
+
+		const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
+		std::cout << ee.count() << std::endl;
+		std::cout << c << std::endl;
+	}
+
+}//ASpectralTester::BoxStackBench
