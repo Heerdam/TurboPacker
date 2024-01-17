@@ -4,3 +4,6 @@
 [submodule "Ext/libmorton"]
 	path = Ext/libmorton
 	url = https://github.com/Forceflow/libmorton.git
+[submodule "Libs/mqt"]
+	path = Libs/mqt
+	url = https://github.com/Heerdam/MedianQuadtree.git
