@@ -243,10 +243,152 @@ void APackTester::Clear() {
 }
 
 void APackTester::Pack() {
+	UWorld* world = GetWorld();
+	if (!world) return;
+
+	Clear();
 
 	using namespace MQT;
 
+	std::vector<double> map;
+	map.resize(Bounds.X * Bounds.Y);
+	std::fill(map.begin(), map.end(), 0.);
 
+	MedianQuadTree<double> tree(map, Bounds.X, Bounds.Y, Bounds.Z, 60);
+
+	struct Result {
+		double weight;
+		int32 n0, n1, h;
+		FVector ext;
+		EAxisPerm perm;
+		TSubclassOf<class APackerBox> box;
+	};
+
+	DrawDebugBox(world, 
+		FVector(Bounds.X * 0.5, Bounds.Y * 0.5, Bounds.Z * 0.5), 
+		FVector(Bounds.X * 0.5, Bounds.Y * 0.5, Bounds.Z * 0.5), FColor::Blue, true);
+
+	int32 k = 0;
+	while (true) {
+	//for(int32 k = 0; k < 5; ++k){
+
+		std::vector<Result> res;
+
+		std::cout << "----" << std::endl;
+
+		for (const auto& b : Boxes) {
+
+			const FBox aabb = b->GetDefaultObject<APackerBox>()->get_aabb();
+
+			//Z_XY 
+			const auto start = std::chrono::high_resolution_clock::now();
+			for (int32 n0 = aabb.GetExtent().X; n0 < Bounds.X - aabb.GetExtent().X; ++n0) {
+				for (int32 n1 = aabb.GetExtent().Y; n1 < Bounds.Y - aabb.GetExtent().Y; ++n1) {
+
+					const int32 i = n1 + n0 * Bounds.Y;
+					if (map[i] + aabb.GetSize().Z >= Bounds.Z) continue;
+
+					//const auto [l1, m1, h1] = tree.check_overlap(
+					//	Vec2{ int32_t(n0 - aabb.GetExtent().X), int32_t(n1 - aabb.GetExtent().Y) },
+					//	Vec2{ int32_t(n0 + aabb.GetExtent().X), int32_t(n1 + aabb.GetExtent().Y) },
+					//	map[i]);
+
+					const auto [l2, m2, h2] = ::MQT::Detail::naive_tester<double>(
+						map,
+						Vec2{ int32_t(n0 - aabb.GetExtent().X), int32_t(n1 - aabb.GetExtent().Y) },
+						Vec2{ int32_t(n0 + aabb.GetExtent().X), int32_t(n1 + aabb.GetExtent().Y) },
+						Bounds.Y,
+						map[i]);
+
+					//if (l1 != l2 || m1 != m2 || h1 != h2) {
+					//	std::cout << "[" << l1 << ", " << m1 << ", " << h1 << "]["
+					//		<< "[" << l2 << ", " << m2 << ", " << h2 << "]" << std::endl;;
+					//}
+
+					//std::cout << l << ", " << m << ", " << h << std::endl;
+
+					//if(k == 1)
+						//std::cout << int32_t(n0 - aabb.GetExtent().X) << ", " << int32_t(n1 - aabb.GetExtent().Y) << "]["
+							//<< int32_t(n0 + aabb.GetExtent().X) << ", " << int32_t(n1 + aabb.GetExtent().Y) << std::endl;
+
+					if (h2 != 0 || l2 != 0) {
+						//if (k == 1) {
+						//	DrawDebugPoint(world, FVector(n0, n1, 0.), 2., FColor::Red, true);
+							//DrawDebugBox(world,
+								//FVector(double(n0), double(n1), 0.),
+								//aabb.GetExtent(),
+								//FColor::Red, true);
+						//}
+						continue;
+					}
+
+					res.emplace_back(
+						
+						std::pow(double(map[i]), 3) + std::pow(double(l2), 2) + std::pow(n0 + n1, 2),
+						n0, n1, map[i],
+						aabb.GetExtent(),
+						EAxisPerm::Z_XY_0, b
+						
+					);
+
+					//if (k == 1) {
+						//DrawDebugPoint(world, FVector(n0, n1, 0.), 2., FColor::Green, true);
+						//DrawDebugBox(world,
+						//	FVector(double(n0 - aabb.GetExtent().X), double(n1 - aabb.GetExtent().Y), 0.),
+						//	FVector(double(n0 + aabb.GetExtent().X), double(n1 + aabb.GetExtent().Y), 1.),
+						//	FColor::Green, true);
+					//}
+				}
+			}
+
+			const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
+			std::cout << ee.count() << std::endl;
+
+		}
+
+		//if (k == 1) return;
+
+		if (res.empty()) break;
+
+		std::sort(res.begin(), res.end(), [](const auto& _e1, const auto& _e2) {
+			return _e1.weight < _e2.weight;
+		});
+
+		const auto& r = res.front();
+		APackerBox* box = r.box->GetDefaultObject<APackerBox>();
+
+		const FBox tar = FBox(
+			FVector(r.n0 - r.ext.X, r.n1 - r.ext.Y, r.h), 
+			FVector(r.n0 + r.ext.X, r.n1 + r.ext.Y, r.h + 2*r.ext.Z));
+
+		DrawDebugBox(world, tar.GetCenter(), tar.GetExtent(), FColor::Red, true);
+
+		FActorSpawnParameters params;
+		params.bHideFromSceneOutliner = true;
+		
+		
+		world->SpawnActor<AActor>(box->GetClass(), ::Detail::make_transform(
+			r.perm,
+			tar,
+			box->get_aabb().GetCenter(),
+			box->get_relative_location()
+		), params);
+		
+
+	
+		for (int32 n0 = int32(tar.Min.X); n0 <= int32(tar.Max.X); ++n0) {
+			for (int32 n1 = int32(tar.Min.Y); n1 <= int32(tar.Max.Y); ++n1) {
+				const int32 i = n1 + n0 * Bounds.Y;
+
+				map[i] = tar.Max.Z;
+
+			}
+		}
+
+		std::stringstream ss;
+		ss << "map_" << k++ << ".png";
+		image_real<double, false>(Bounds.X, Bounds.Y, map.data(), ss.str());
+	}
 
 }
 
