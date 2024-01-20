@@ -46,10 +46,14 @@ class TURBOPACKER_API APackTester : public AActor {
 public:
 
 	UPROPERTY(EditAnywhere)
-	FIntVector Bounds;
+	FIntVector Bounds = FIntVector(480, 480, 150);
+
+	UPROPERTY(EditAnywhere)
+	int32 BucketExtend = 15;
 
 	UPROPERTY(EditDefaultsOnly)
 	TArray<TSubclassOf<class APackerBox>> Boxes;
+
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = Packer)
 	void Clear();

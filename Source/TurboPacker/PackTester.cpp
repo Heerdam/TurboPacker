@@ -254,7 +254,7 @@ void APackTester::Pack() {
 	map.resize(Bounds.X * Bounds.Y);
 	std::fill(map.begin(), map.end(), 0.);
 
-	MedianQuadTree<double> tree(map, Bounds.X, Bounds.Y, Bounds.Z, 60);
+	MedianQuadTree<double> tree(map, Bounds.X, Bounds.Y, Bounds.Z, BucketExtend);
 
 	struct Result {
 		double weight;
@@ -269,6 +269,7 @@ void APackTester::Pack() {
 		FVector(Bounds.X * 0.5, Bounds.Y * 0.5, Bounds.Z * 0.5), FColor::Blue, true);
 
 	int32 k = 0;
+	const auto startt = std::chrono::high_resolution_clock::now();
 	while (true) {
 	//for(int32 k = 0; k < 5; ++k){
 
@@ -288,17 +289,17 @@ void APackTester::Pack() {
 					const int32 i = n1 + n0 * Bounds.Y;
 					if (map[i] + aabb.GetSize().Z >= Bounds.Z) continue;
 
-					//const auto [l1, m1, h1] = tree.check_overlap(
-					//	Vec2{ int32_t(n0 - aabb.GetExtent().X), int32_t(n1 - aabb.GetExtent().Y) },
-					//	Vec2{ int32_t(n0 + aabb.GetExtent().X), int32_t(n1 + aabb.GetExtent().Y) },
-					//	map[i]);
-
-					const auto [l2, m2, h2] = ::MQT::Detail::naive_tester<double>(
-						map,
+					const auto [l, m, h] = tree.check_overlap(
 						Vec2{ int32_t(n0 - aabb.GetExtent().X), int32_t(n1 - aabb.GetExtent().Y) },
 						Vec2{ int32_t(n0 + aabb.GetExtent().X), int32_t(n1 + aabb.GetExtent().Y) },
-						Bounds.Y,
 						map[i]);
+
+					//const auto [l, m, h] = ::MQT::Detail::naive_tester<double>(
+					//	map,
+					//	Vec2{ int32_t(n0 - aabb.GetExtent().X), int32_t(n1 - aabb.GetExtent().Y) },
+					//	Vec2{ int32_t(n0 + aabb.GetExtent().X), int32_t(n1 + aabb.GetExtent().Y) },
+					//	Bounds.Y,
+					//	map[i]);
 
 					//if (l1 != l2 || m1 != m2 || h1 != h2) {
 					//	std::cout << "[" << l1 << ", " << m1 << ", " << h1 << "]["
@@ -311,7 +312,7 @@ void APackTester::Pack() {
 						//std::cout << int32_t(n0 - aabb.GetExtent().X) << ", " << int32_t(n1 - aabb.GetExtent().Y) << "]["
 							//<< int32_t(n0 + aabb.GetExtent().X) << ", " << int32_t(n1 + aabb.GetExtent().Y) << std::endl;
 
-					if (h2 != 0 || l2 != 0) {
+					if (h != 0 || l != 0) {
 						//if (k == 1) {
 						//	DrawDebugPoint(world, FVector(n0, n1, 0.), 2., FColor::Red, true);
 							//DrawDebugBox(world,
@@ -324,7 +325,7 @@ void APackTester::Pack() {
 
 					res.emplace_back(
 						
-						std::pow(double(map[i]), 3) + std::pow(double(l2), 2) + std::pow(n0 + n1, 2),
+						std::pow(double(map[i]), 3) + std::pow(double(l), 2) + std::pow(n0 + n1, 2),
 						n0, n1, map[i],
 						aabb.GetExtent(),
 						EAxisPerm::Z_XY_0, b
@@ -374,7 +375,7 @@ void APackTester::Pack() {
 			box->get_relative_location()
 		), params);
 		
-
+		k++;
 	
 		for (int32 n0 = int32(tar.Min.X); n0 <= int32(tar.Max.X); ++n0) {
 			for (int32 n1 = int32(tar.Min.Y); n1 <= int32(tar.Max.Y); ++n1) {
@@ -385,11 +386,15 @@ void APackTester::Pack() {
 			}
 		}
 
-		std::stringstream ss;
-		ss << "map_" << k++ << ".png";
-		image_real<double, false>(Bounds.X, Bounds.Y, map.data(), ss.str());
+		tree.recompute();
+
+		//std::stringstream ss;
+		//ss << "map_" << k++ << ".png";
+		//image_real<double, false>(Bounds.X, Bounds.Y, map.data(), ss.str());
 	}
 
+	const std::chrono::duration<double> eet = std::chrono::high_resolution_clock::now() - startt;
+	std::cout << "Spawned " << k << " boxes in " << eet.count() << "s" << std::endl;
 }
 
 void APackTester::StepForward() {
@@ -399,3 +404,9 @@ void APackTester::StepForward() {
 void APackTester::StepBack() {
 
 }
+
+// Naive:
+//  Spawned 162 boxes in 57.0335s - 0.352s /box
+// MQT:
+//  Spawned 162 boxes in 15.7559s - 0.09725s/box
+//  Spawned 648 boxes in 160.478s - 0.247s/box
