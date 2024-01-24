@@ -2,6 +2,7 @@
 #include "PackTester.h"
 
 #include "MQT.hpp"
+#include "MQT2.hpp"
 
 FTransform Detail::make_transform(
 	EAxisPerm _perm,
@@ -248,15 +249,19 @@ void APackTester::Pack() {
 
 	Clear();
 
-	using namespace MQT;
+	using namespace MQT2;
 
 	std::vector<double> map;
-	map.resize(Bounds.X * Bounds.Y);
+	map.resize(Bounds * Bounds);
 	std::fill(map.begin(), map.end(), 0.);
 
-	MedianQuadTree<double> tree(map, Bounds.X, Bounds.Y, Bounds.Z, BucketExtend);
+	std::cout << Bounds << std::endl;
 
-	struct Result {
+	using Tree = MedianQuadTree<double, 15>;
+
+	Tree tree(map, Bounds);
+
+	struct Result { 
 		double weight;
 		int32 n0, n1, h;
 		FVector ext;
@@ -265,97 +270,190 @@ void APackTester::Pack() {
 	};
 
 	DrawDebugBox(world, 
-		FVector(Bounds.X * 0.5, Bounds.Y * 0.5, Bounds.Z * 0.5), 
-		FVector(Bounds.X * 0.5, Bounds.Y * 0.5, Bounds.Z * 0.5), FColor::Blue, true);
+		FVector(Bounds * 0.5, Bounds * 0.5, Height * 0.5),
+		FVector(Bounds * 0.5, Bounds * 0.5, Height * 0.5), FColor::Blue, true);
 
+	int32 kkk = 0;
 	int32 k = 0;
+	const auto overlap = [&](const int32 _ext0, const int32 _ext1, const int32 _h)->std::optional<Result> {
+
+		for (int32 n0 = _ext0; n0 < Bounds - _ext0; ++n0) {
+			for (int32 n1 = _ext1; n1 < Bounds - _ext1; ++n1) {
+
+				const int32 i = n1 + n0 * Bounds;
+				//if (i < 0 || i >= map.size())
+					//std::cout << "oob overlap" << std::endl;
+				if (map[i] + 2 * _h >= Height) continue;
+
+				const auto [l, m, h] = tree.check_overlap(
+					Vec2{ int32_t(n0 - _ext0), int32_t(n1 - _ext1) },
+					Vec2{ int32_t(n0 + _ext0), int32_t(n1 + _ext1) },
+					map[i]);
+				kkk++;
+
+				
+				/*const auto [l1, m1, h1] = ::MQT3::Detail::naive_tester<double>(
+					map,
+					Vec2{ int32_t(n0 - _ext0), int32_t(n1 - _ext1) },
+					Vec2{ int32_t(n0 + _ext0), int32_t(n1 + _ext1) },
+					Bounds,
+					map[i]);
+					
+				
+
+				if (l != l1 || m != m1 || h != h1) {
+					std::cout << "-----------" << std::endl;
+					std::cout << k << std::endl;
+					std::cout << n0 << ", " << n1 << std::endl;
+					std::cout << _ext0 << ", " << _ext1 << std::endl;
+					std::cout << l << ", " << m << ", " << h << " | " << l1 << ", " << m1 << ", " << h1 << std::endl;
+					DrawDebugBox(world, FVector(n0, n1, map[i] + _h), FVector(_ext0, _ext1, _h), FColor::Red, true);
+				}*/
+
+				if (h != 0 || l != 0) continue;
+
+				Result out;
+				out.n0 = n0;
+				out.n1 = n1;
+				out.h = map[i];
+				out.weight = std::pow(double(map[i]), 3) + std::pow(double(l), 2) + std::pow(n0 + n1, 2);
+
+				return { out };
+			}
+		}
+		return {};
+	};
+
+	const int32_t bc = (Bounds / Tree::BUCKET_SIZE);
+	std::vector<bool> mm;
+	mm.resize(bc* bc);
+	std::fill(mm.begin(), mm.end(), true);
+
+	std::vector<std::pair<TSubclassOf<APackerBox>, FTransform>> toSpawn;
+	 
+	double vol = 0.;
+	double s1 = 0., s2 = 0., s3 = 0., s4 = 0., s5 = 0.;
 	const auto startt = std::chrono::high_resolution_clock::now();
+	int32 kk = 0;
+	
 	while (true) {
-	//for(int32 k = 0; k < 5; ++k){
 
 		std::vector<Result> res;
-
-		std::cout << "----" << std::endl;
-
+		double minc = std::numeric_limits<double>::infinity();
+		const auto start1 = std::chrono::high_resolution_clock::now();
 		for (const auto& b : Boxes) {
 
 			const FBox aabb = b->GetDefaultObject<APackerBox>()->get_aabb();
-
-			//Z_XY 
-			const auto start = std::chrono::high_resolution_clock::now();
-			for (int32 n0 = aabb.GetExtent().X; n0 < Bounds.X - aabb.GetExtent().X; ++n0) {
-				for (int32 n1 = aabb.GetExtent().Y; n1 < Bounds.Y - aabb.GetExtent().Y; ++n1) {
-
-					const int32 i = n1 + n0 * Bounds.Y;
-					if (map[i] + aabb.GetSize().Z >= Bounds.Z) continue;
-
-					const auto [l, m, h] = tree.check_overlap(
-						Vec2{ int32_t(n0 - aabb.GetExtent().X), int32_t(n1 - aabb.GetExtent().Y) },
-						Vec2{ int32_t(n0 + aabb.GetExtent().X), int32_t(n1 + aabb.GetExtent().Y) },
-						map[i]);
-
-					//const auto [l, m, h] = ::MQT::Detail::naive_tester<double>(
-					//	map,
-					//	Vec2{ int32_t(n0 - aabb.GetExtent().X), int32_t(n1 - aabb.GetExtent().Y) },
-					//	Vec2{ int32_t(n0 + aabb.GetExtent().X), int32_t(n1 + aabb.GetExtent().Y) },
-					//	Bounds.Y,
-					//	map[i]);
-
-					//if (l1 != l2 || m1 != m2 || h1 != h2) {
-					//	std::cout << "[" << l1 << ", " << m1 << ", " << h1 << "]["
-					//		<< "[" << l2 << ", " << m2 << ", " << h2 << "]" << std::endl;;
-					//}
-
-					//std::cout << l << ", " << m << ", " << h << std::endl;
-
-					//if(k == 1)
-						//std::cout << int32_t(n0 - aabb.GetExtent().X) << ", " << int32_t(n1 - aabb.GetExtent().Y) << "]["
-							//<< int32_t(n0 + aabb.GetExtent().X) << ", " << int32_t(n1 + aabb.GetExtent().Y) << std::endl;
-
-					if (h != 0 || l != 0) {
-						//if (k == 1) {
-						//	DrawDebugPoint(world, FVector(n0, n1, 0.), 2., FColor::Red, true);
-							//DrawDebugBox(world,
-								//FVector(double(n0), double(n1), 0.),
-								//aabb.GetExtent(),
-								//FColor::Red, true);
-						//}
-						continue;
-					}
-
-					res.emplace_back(
-						
-						std::pow(double(map[i]), 3) + std::pow(double(l), 2) + std::pow(n0 + n1, 2),
-						n0, n1, map[i],
-						aabb.GetExtent(),
-						EAxisPerm::Z_XY_0, b
-						
-					);
-
-					//if (k == 1) {
-						//DrawDebugPoint(world, FVector(n0, n1, 0.), 2., FColor::Green, true);
-						//DrawDebugBox(world,
-						//	FVector(double(n0 - aabb.GetExtent().X), double(n1 - aabb.GetExtent().Y), 0.),
-						//	FVector(double(n0 + aabb.GetExtent().X), double(n1 + aabb.GetExtent().Y), 1.),
-						//	FColor::Green, true);
-					//}
+			//const auto start = std::chrono::high_resolution_clock::now();
+			//Z_XY
+			if constexpr (true) {
+				const auto start5 = std::chrono::high_resolution_clock::now();
+				auto ro = overlap(std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().Z));
+				const std::chrono::duration<double> e5 = std::chrono::high_resolution_clock::now() - start5;
+				s5 += e5.count();
+				kk++;
+				if (ro) {
+					Result& r = ro.value();
+					if (r.weight < minc) {
+						minc = std::min(r.weight, minc);
+						r.box = b;
+						r.ext = FVector(std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().Z));
+						r.perm = EAxisPerm::Z_XY_0;
+						res.push_back(r);
+					} //else continue;
+				}
+			}
+			//Z_YX
+			if constexpr (true) {
+				auto ro = overlap(std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Z));
+				if (ro) {
+					Result& r = ro.value();
+					if (r.weight < minc) {
+						minc = std::min(r.weight, minc);
+						r.box = b;
+						r.ext = FVector(std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Z));
+						r.perm = EAxisPerm::Z_XY_1;
+						res.push_back(r);
+					} //else continue;
+				}
+			}
+			//Y_XZ
+			if constexpr (true) {
+				auto ro = overlap(std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().Y));
+				if (ro) {
+					Result& r = ro.value();
+					if (r.weight < minc) {
+						minc = std::min(r.weight, minc);
+						r.box = b;
+						r.ext = FVector(std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().Y));
+						r.perm = EAxisPerm::Y_XZ_0;
+						res.push_back(r);
+					} //else continue;
+				}
+			}
+			//Y_ZX
+			if constexpr (true) {
+				auto ro = overlap(std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Y));
+				if (ro) {
+					Result& r = ro.value();
+					if (r.weight < minc) {
+						minc = std::min(r.weight, minc);
+						r.box = b;
+						r.ext = FVector(std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Y));
+						r.perm = EAxisPerm::Y_XZ_1;
+						res.push_back(r);
+					} //else continue;
+				}
+			}
+			//X_YZ
+			if constexpr (true) {
+				auto ro = overlap(std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().X));
+				if (ro) {
+					Result& r = ro.value();
+					if (r.weight < minc) {
+						minc = std::min(r.weight, minc);
+						r.box = b;
+						r.ext = FVector(std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().X));
+						r.perm = EAxisPerm::X_YZ_0;
+						res.push_back(r);
+					} //else continue;
+				}
+			}
+			//X_ZY
+			if constexpr(true){
+				auto ro = overlap(std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().X));
+				if (ro) {
+					Result& r = ro.value();
+					if (r.weight < minc) {
+						minc = std::min(r.weight, minc);
+						r.box = b;
+						r.ext = FVector(std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().X));
+						r.perm = EAxisPerm::X_YZ_1;
+						res.push_back(r);
+					} //else continue;
 				}
 			}
 
-			const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
-			std::cout << ee.count() << std::endl;
+			//const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
+			//std::cout << "r: " << ee.count() << std::endl;
 
 		}
+
+		const std::chrono::duration<double> e1 = std::chrono::high_resolution_clock::now() - start1;
+		s1 += e1.count();
 
 		//if (k == 1) return;
 
 		if (res.empty()) break;
 
-		std::sort(res.begin(), res.end(), [](const auto& _e1, const auto& _e2) {
+		const auto start2 = std::chrono::high_resolution_clock::now();
+		std::sort(res.begin(), res.end(), [](const Result& _e1, const Result& _e2) {
 			return _e1.weight < _e2.weight;
 		});
+		const std::chrono::duration<double> e2 = std::chrono::high_resolution_clock::now() - start2;
+		s2 += e2.count();
 
-		const auto& r = res.front();
+		const auto& r = res[0];
 		APackerBox* box = r.box->GetDefaultObject<APackerBox>();
 
 		const FBox tar = FBox(
@@ -364,37 +462,72 @@ void APackTester::Pack() {
 
 		DrawDebugBox(world, tar.GetCenter(), tar.GetExtent(), FColor::Red, true);
 
-		FActorSpawnParameters params;
-		params.bHideFromSceneOutliner = true;
-		
-		
-		world->SpawnActor<AActor>(box->GetClass(), ::Detail::make_transform(
+		vol += tar.GetVolume();
+
+		const auto start3 = std::chrono::high_resolution_clock::now();
+		toSpawn.emplace_back(box->GetClass(), ::Detail::make_transform(
 			r.perm,
 			tar,
 			box->get_aabb().GetCenter(),
 			box->get_relative_location()
-		), params);
+		));
+		const std::chrono::duration<double> e3 = std::chrono::high_resolution_clock::now() - start3;
+		s3 += e3.count();
 		
 		k++;
-	
-		for (int32 n0 = int32(tar.Min.X); n0 <= int32(tar.Max.X); ++n0) {
-			for (int32 n1 = int32(tar.Min.Y); n1 <= int32(tar.Max.Y); ++n1) {
-				const int32 i = n1 + n0 * Bounds.Y;
 
-				map[i] = tar.Max.Z;
+		//if (k > 50) break;
 
+		//std::cout << "----" << std::endl;
+		//std::cout << int32(tar.Min.X) / Tree::BUCKET_SIZE << ", " << int32(tar.Max.X) / Tree::BUCKET_SIZE  << std::endl;
+		//std::cout << int32(tar.Min.Y) / Tree::BUCKET_SIZE << ", " << int32(tar.Max.Y) / Tree::BUCKET_SIZE << std::endl;
+		
+		std::fill(mm.begin(), mm.end(), false);
+		for (int32 n0 = int32(tar.Min.X) / Tree::BUCKET_SIZE; n0 <= int32(tar.Max.X) / Tree::BUCKET_SIZE; ++n0) {
+			for (int32 n1 = int32(tar.Min.Y) / Tree::BUCKET_SIZE; n1 <= int32(tar.Max.Y) / Tree::BUCKET_SIZE; ++n1) {
+				const int32_t iid = n0 + n1 * bc;
+				mm[iid] = true;
 			}
 		}
 
-		tree.recompute();
+		for (int32 n0 = int32(tar.Min.X); n0 <= int32(tar.Max.X); ++n0) {
+			for (int32 n1 = int32(tar.Min.Y); n1 <= int32(tar.Max.Y); ++n1) {
+				const int32 i = n1 + n0 * Bounds;
+				//if (i < 0 || i >= map.size()) {
+				//	std::cout << "insert oob" << std::endl;
+				//}
+				map[i] = tar.Max.Z;
+			}
+		}
+
+		//const auto start = std::chrono::high_resolution_clock::now();
+		const auto start4 = std::chrono::high_resolution_clock::now();
+		tree.recompute(mm);
+		const std::chrono::duration<double> e4 = std::chrono::high_resolution_clock::now() - start4;
+		s4 += e4.count();
+		//const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
+		//std::cout << "r: " << ee.count() << std::endl;
 
 		//std::stringstream ss;
 		//ss << "map_" << k++ << ".png";
-		//image_real<double, false>(Bounds.X, Bounds.Y, map.data(), ss.str());
+		//image_real<double, false>(Bounds, Bounds, map.data(), ss.str());
 	}
 
 	const std::chrono::duration<double> eet = std::chrono::high_resolution_clock::now() - startt;
 	std::cout << "Spawned " << k << " boxes in " << eet.count() << "s" << std::endl;
+	std::cout << "overlap: " << s1 << "s" << std::endl;
+	std::cout << "sort: " << s2 << "s" << std::endl;
+	std::cout << "transform: " << s3 << "s" << std::endl;
+	std::cout << "rebuild: " << s4 << "s" << std::endl;
+	std::cout << "#overlaps: " << kkk << std::endl;
+	std::cout << "t/overlap: " << s1 / double(kkk) << "s" << std::endl;
+	std::cout << "Volume: " << (1. / double(Bounds * Bounds * Height) * 100. * vol) << "%" << std::endl;
+
+	FActorSpawnParameters params;
+	params.bHideFromSceneOutliner = true;
+	for (const auto& [c, t] : toSpawn) {
+		world->SpawnActor<AActor>(c, t, params);
+	}
 }
 
 void APackTester::StepForward() {
