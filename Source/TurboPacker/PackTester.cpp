@@ -313,100 +313,157 @@ void APackTester::pack_impl() {
 
 	while (true) {
 
+		std::mutex mut;
 		std::vector<::Detail::Result> res;
-		double minc = std::numeric_limits<double>::infinity();
+		std::atomic<double> minc = std::numeric_limits<double>::infinity();
+
+		std::atomic<int32> c = 0;
 
 		for (const auto& b : Boxes) {
 
 			const FBox aabb = b->GetDefaultObject<APackerBox>()->get_aabb();
 
 			//Z_XY
-			if constexpr (true) {
-				auto ro = overlap(std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().Z));
-				if (ro) {
-					::Detail::Result& r = ro.value();
-					if (r.weight < minc) {
-						minc = std::min(r.weight, minc);
-						r.box = b;
-						r.ext = FVector(std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().Z));
-						r.perm = EAxisPerm::Z_XY_0;
-						res.push_back(r);
+			c++;
+			AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, [
+				&, _b = b, _perm = EAxisPerm::Z_XY_0, 
+				_ext0 = std::ceil(aabb.GetExtent().X), 
+				_ext1 = std::ceil(aabb.GetExtent().Y), 
+				_h = std::ceil(aabb.GetExtent().Z)]() -> void {	
+					auto ro = overlap(_ext0, _ext1, _h);
+					if (ro) {
+						::Detail::Result& r = ro.value();
+						if (r.weight < minc) {
+							minc = std::min(r.weight, minc.load());
+							r.box = _b;
+							r.ext = FVector(_ext0, _ext1, _h);
+							r.perm = _perm;
+							std::lock_guard<std::mutex> l(mut);
+							res.push_back(r);
+						}
 					}
+					c--;
 				}
-			}
+			);
+
 			//Z_YX
-			if constexpr (true) {
-				auto ro = overlap(std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Z));
-				if (ro) {
-					::Detail::Result& r = ro.value();
-					if (r.weight < minc) {
-						minc = std::min(r.weight, minc);
-						r.box = b;
-						r.ext = FVector(std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Z));
-						r.perm = EAxisPerm::Z_XY_1;
-						res.push_back(r);
+			c++;
+			AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, [
+					&, _b = b, _perm = EAxisPerm::Z_XY_1,
+					_ext0 = std::ceil(aabb.GetExtent().Y),
+					_ext1 = std::ceil(aabb.GetExtent().X),
+					_h = std::ceil(aabb.GetExtent().Z)]() -> void {
+					auto ro = overlap(_ext0, _ext1, _h);
+					if (ro) {
+						::Detail::Result& r = ro.value();
+						if (r.weight < minc) {
+							minc = std::min(r.weight, minc.load());
+							r.box = _b;
+							r.ext = FVector(_ext0, _ext1, _h);
+							r.perm = _perm;
+							std::lock_guard<std::mutex> l(mut);
+							res.push_back(r);
+						}
 					}
+					c--;
 				}
-			}
+				);
+
 			//Y_XZ
-			if constexpr (true) {
-				auto ro = overlap(std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().Y));
-				if (ro) {
-					::Detail::Result& r = ro.value();
-					if (r.weight < minc) {
-						minc = std::min(r.weight, minc);
-						r.box = b;
-						r.ext = FVector(std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().Y));
-						r.perm = EAxisPerm::Y_XZ_0;
-						res.push_back(r);
+			c++;
+			AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, [
+					&, _b = b, _perm = EAxisPerm::Y_XZ_0,
+					_ext0 = std::ceil(aabb.GetExtent().X),
+					_ext1 = std::ceil(aabb.GetExtent().Z),
+					_h = std::ceil(aabb.GetExtent().Y)]() -> void {
+					auto ro = overlap(_ext0, _ext1, _h);
+					if (ro) {
+						::Detail::Result& r = ro.value();
+						if (r.weight < minc) {
+							minc = std::min(r.weight, minc.load());
+							r.box = _b;
+							r.ext = FVector(_ext0, _ext1, _h);
+							r.perm = _perm;
+							std::lock_guard<std::mutex> l(mut);
+							res.push_back(r);
+						}
 					}
+					c--;
 				}
-			}
+				);
+
 			//Y_ZX
-			if constexpr (true) {
-				auto ro = overlap(std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Y));
-				if (ro) {
-					::Detail::Result& r = ro.value();
-					if (r.weight < minc) {
-						minc = std::min(r.weight, minc);
-						r.box = b;
-						r.ext = FVector(std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Y));
-						r.perm = EAxisPerm::Y_XZ_1;
-						res.push_back(r);
+			c++;
+			AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, [
+					&, _b = b, _perm = EAxisPerm::Y_XZ_1,
+					_ext0 = std::ceil(aabb.GetExtent().Z),
+					_ext1 = std::ceil(aabb.GetExtent().X),
+					_h = std::ceil(aabb.GetExtent().Y)]() -> void {
+					auto ro = overlap(_ext0, _ext1, _h);
+					if (ro) {
+						::Detail::Result& r = ro.value();
+						if (r.weight < minc) {
+							minc = std::min(r.weight, minc.load());
+							r.box = _b;
+							r.ext = FVector(_ext0, _ext1, _h);
+							r.perm = _perm;
+							std::lock_guard<std::mutex> l(mut);
+							res.push_back(r);
+						}
 					}
+					c--;
 				}
-			}
+				);
+
 			//X_YZ
-			if constexpr (true) {
-				auto ro = overlap(std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().X));
-				if (ro) {
-					::Detail::Result& r = ro.value();
-					if (r.weight < minc) {
-						minc = std::min(r.weight, minc);
-						r.box = b;
-						r.ext = FVector(std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().X));
-						r.perm = EAxisPerm::X_YZ_0;
-						res.push_back(r);
+			c++;
+			AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, [
+					&, _b = b, _perm = EAxisPerm::X_YZ_0,
+					_ext0 = std::ceil(aabb.GetExtent().Y),
+					_ext1 = std::ceil(aabb.GetExtent().Z),
+					_h = std::ceil(aabb.GetExtent().X)]() -> void {
+					auto ro = overlap(_ext0, _ext1, _h);
+					if (ro) {
+						::Detail::Result& r = ro.value();
+						if (r.weight < minc) {
+							minc = std::min(r.weight, minc.load());
+							r.box = _b;
+							r.ext = FVector(_ext0, _ext1, _h);
+							r.perm = _perm;
+							std::lock_guard<std::mutex> l(mut);
+							res.push_back(r);
+						}
 					}
+					c--;
 				}
-			}
+				);
+
 			//X_ZY
-			if constexpr (true) {
-				auto ro = overlap(std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().X));
-				if (ro) {
-					::Detail::Result& r = ro.value();
-					if (r.weight < minc) {
-						minc = std::min(r.weight, minc);
-						r.box = b;
-						r.ext = FVector(std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().X));
-						r.perm = EAxisPerm::X_YZ_1;
-						res.push_back(r);
+			c++;
+			AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, [
+					&, _b = b, _perm = EAxisPerm::X_YZ_1,
+					_ext0 = std::ceil(aabb.GetExtent().Z),
+					_ext1 = std::ceil(aabb.GetExtent().Y),
+					_h = std::ceil(aabb.GetExtent().X)]() -> void {
+					auto ro = overlap(_ext0, _ext1, _h);
+					if (ro) {
+						::Detail::Result& r = ro.value();
+						if (r.weight < minc) {
+							minc = std::min(r.weight, minc.load());
+							r.box = _b;
+							r.ext = FVector(_ext0, _ext1, _h);
+							r.perm = _perm;
+							std::lock_guard<std::mutex> l(mut);
+							res.push_back(r);
+						}
 					}
+					c--;
 				}
-			}
+				);
 
 		}
 
+		while(c != 0){}
 
 		if (res.empty() || !isPacking) break;
 
@@ -472,7 +529,7 @@ void APackTester::Pack() {
 	//---------------
 
 	isPacking = true;
-
+	std::cout << "start" << std::endl;
 	future = std::make_unique<TFuture<bool>>(AsyncThread([this]() -> bool {
 		pack_impl();
 		std::cout << "done" << std::endl;
