@@ -7,7 +7,6 @@
 #include "MQT2.hpp"
 
 #include "Async/Async.h"
-
 #include "PackTester.generated.h"
 
 /*
@@ -47,6 +46,8 @@ namespace Detail {
 	};//Result
 
 }//Detail
+
+//-----------------------
 
 UCLASS(Blueprintable, BlueprintType)
 class TURBOPACKER_API APackTester : public AActor {
@@ -88,13 +89,74 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = Packer)
 	void Pack();
 
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = Packer)
-	void StepForward();
+};//APackTester
+
+//-----------------------
+USTRUCT(BlueprintType)
+struct TURBOPACKER_API FPPair {
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere)
+	TSubclassOf<class APackerBox> Type;
+
+	UPROPERTY(EditAnywhere)
+	int32 Count;
+};//FPPair
+
+UCLASS(Blueprintable, BlueprintType)
+class TURBOPACKER_API UOnlinePackerConfig : public UObject {
+	GENERATED_BODY()
+public:
+	UPROPERTY(EditDefaultsOnly)
+	int32 Bounds = 480;
+
+	UPROPERTY(EditDefaultsOnly)
+	int32 Height = 150;
+
+	UPROPERTY(EditDefaultsOnly)
+	TArray<FPPair> Boxes;
+};//UOnlinePackerConfig
+
+UCLASS(Blueprintable, BlueprintType)
+class TURBOPACKER_API AOnlinePacker : public AActor {
+	GENERATED_BODY()
+
+	using Tree = MQT2::MedianQuadTree<float, 15>;
+
+	std::unique_ptr<std::mutex> m;
+	std::vector< std::pair<TSubclassOf<APackerBox>, FTransform> > toSpawn;
+
+	std::queue<APackerBox*> q;
+
+	bool isPacking = false;
+
+	std::vector<float> map;
+	std::unique_ptr<Tree> tree;
+
+	std::unique_ptr<TFuture<bool>> future;
+	std::chrono::high_resolution_clock::time_point start;
+
+	void pack_impl();
+
+	double vol = 0.;
+
+public:
+
+	UPROPERTY(EditDefaultsOnly)
+	TSubclassOf<class UOnlinePackerConfig> Config;
+
+	AOnlinePacker();
+
+	void Tick(float _delta) override;
+	virtual bool ShouldTickIfViewportsOnly() const override { return true; }
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = Packer)
-	void StepBack();
+	void Clear();
 
-};//ASpectralPacker
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = Packer)
+	void Pack();
+
+};//AOnlinePacker
 
 //--------------------------------------
 
@@ -110,6 +172,7 @@ public:
 	APackerBox();
 	FBox get_aabb() const;
 	virtual FVector get_relative_location() const { return FVector(0.); }
+	double get_weight() const;
 
 };//APackerBox
 
