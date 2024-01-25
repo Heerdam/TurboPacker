@@ -1,8 +1,6 @@
 
 #include "PackTester.h"
 
-#include "MQT.hpp"
-#include "MQT2.hpp"
 
 FTransform Detail::make_transform(
 	EAxisPerm _perm,
@@ -228,13 +226,45 @@ FBox APackerBox::get_aabb() const {
 
 //----------------------------------------
 
+APackTester::APackTester() {
+
+	m = std::make_unique<std::mutex>();
+
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.TickInterval = 1.f;
+
+}//APackTester::APackTester
+
+void APackTester::Tick(float _delta) {
+
+	if(isPacking){
+		std::lock_guard<std::mutex> lock(*m);
+		
+		UWorld* world = GetWorld();
+		FActorSpawnParameters params;
+		params.bHideFromSceneOutliner = true;
+		for (const auto& [c, t] : toSpawn) {
+			world->SpawnActor<AActor>(c, t, params);
+		}
+		toSpawn.clear();
+	}
+
+}//APackTester::Tick
+
 void APackTester::Clear() {
 	UWorld* world = GetWorld();
 	if (!world) return;
 
-	cache.Empty();
-	idx = 0;
-	
+	{
+		std::lock_guard<std::mutex> lock(*m);
+		if (future != nullptr) {
+			future->Wait();
+		}
+		isPacking = false;
+		toSpawn.clear();
+
+	}
+
 	FlushPersistentDebugLines(world);
 	
 	TArray<AActor*> tod;
@@ -243,72 +273,24 @@ void APackTester::Clear() {
 		world->DestroyActor(a);
 }
 
-void APackTester::Pack() {
-	UWorld* world = GetWorld();
-	if (!world) return;
-
-	Clear();
+void APackTester::pack_impl() {
 
 	using namespace MQT2;
 
-	std::vector<double> map;
-	map.resize(Bounds * Bounds);
-	std::fill(map.begin(), map.end(), 0.);
+	const auto overlap = [&](const int32 _ext0, const int32 _ext1, const int32 _h)->std::optional<::Detail::Result> {
 
-	std::cout << Bounds << std::endl;
-
-	using Tree = MedianQuadTree<double, 15>;
-
-	Tree tree(map, Bounds);
-
-	struct Result { 
-		double weight;
-		int32 n0, n1, h;
-		FVector ext;
-		EAxisPerm perm;
-		TSubclassOf<class APackerBox> box;
-	};
-
-	DrawDebugBox(world, 
-		FVector(Bounds * 0.5, Bounds * 0.5, Height * 0.5),
-		FVector(Bounds * 0.5, Bounds * 0.5, Height * 0.5), FColor::Blue, true);
-
-	int32 kkk = 0;
-	int32 k = 0;
-	const auto overlap = [&](const int32 _ext0, const int32 _ext1, const int32 _h)->std::optional<Result> {
+		using namespace ::Detail;
 
 		for (int32 n0 = _ext0; n0 < Bounds - _ext0; ++n0) {
 			for (int32 n1 = _ext1; n1 < Bounds - _ext1; ++n1) {
 
 				const int32 i = n1 + n0 * Bounds;
-				//if (i < 0 || i >= map.size())
-					//std::cout << "oob overlap" << std::endl;
 				if (map[i] + 2 * _h >= Height) continue;
 
-				const auto [l, m, h] = tree.check_overlap(
+				const auto [l, m, h] = tree->check_overlap(
 					Vec2{ int32_t(n0 - _ext0), int32_t(n1 - _ext1) },
 					Vec2{ int32_t(n0 + _ext0), int32_t(n1 + _ext1) },
 					map[i]);
-				kkk++;
-
-				
-				/*const auto [l1, m1, h1] = ::MQT3::Detail::naive_tester<double>(
-					map,
-					Vec2{ int32_t(n0 - _ext0), int32_t(n1 - _ext1) },
-					Vec2{ int32_t(n0 + _ext0), int32_t(n1 + _ext1) },
-					Bounds,
-					map[i]);
-					
-				
-
-				if (l != l1 || m != m1 || h != h1) {
-					std::cout << "-----------" << std::endl;
-					std::cout << k << std::endl;
-					std::cout << n0 << ", " << n1 << std::endl;
-					std::cout << _ext0 << ", " << _ext1 << std::endl;
-					std::cout << l << ", " << m << ", " << h << " | " << l1 << ", " << m1 << ", " << h1 << std::endl;
-					DrawDebugBox(world, FVector(n0, n1, map[i] + _h), FVector(_ext0, _ext1, _h), FColor::Red, true);
-				}*/
 
 				if (h != 0 || l != 0) continue;
 
@@ -326,162 +308,129 @@ void APackTester::Pack() {
 
 	const int32_t bc = (Bounds / Tree::BUCKET_SIZE);
 	std::vector<bool> mm;
-	mm.resize(bc* bc);
+	mm.resize(bc * bc);
 	std::fill(mm.begin(), mm.end(), true);
 
-	std::vector<std::pair<TSubclassOf<APackerBox>, FTransform>> toSpawn;
-	 
-	double vol = 0.;
-	double s1 = 0., s2 = 0., s3 = 0., s4 = 0., s5 = 0.;
-	const auto startt = std::chrono::high_resolution_clock::now();
-	int32 kk = 0;
-	
 	while (true) {
 
-		std::vector<Result> res;
+		std::vector<::Detail::Result> res;
 		double minc = std::numeric_limits<double>::infinity();
-		const auto start1 = std::chrono::high_resolution_clock::now();
+
 		for (const auto& b : Boxes) {
 
 			const FBox aabb = b->GetDefaultObject<APackerBox>()->get_aabb();
-			//const auto start = std::chrono::high_resolution_clock::now();
+
 			//Z_XY
 			if constexpr (true) {
-				const auto start5 = std::chrono::high_resolution_clock::now();
 				auto ro = overlap(std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().Z));
-				const std::chrono::duration<double> e5 = std::chrono::high_resolution_clock::now() - start5;
-				s5 += e5.count();
-				kk++;
 				if (ro) {
-					Result& r = ro.value();
+					::Detail::Result& r = ro.value();
 					if (r.weight < minc) {
 						minc = std::min(r.weight, minc);
 						r.box = b;
 						r.ext = FVector(std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().Z));
 						r.perm = EAxisPerm::Z_XY_0;
 						res.push_back(r);
-					} //else continue;
+					}
 				}
 			}
 			//Z_YX
 			if constexpr (true) {
 				auto ro = overlap(std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Z));
 				if (ro) {
-					Result& r = ro.value();
+					::Detail::Result& r = ro.value();
 					if (r.weight < minc) {
 						minc = std::min(r.weight, minc);
 						r.box = b;
 						r.ext = FVector(std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Z));
 						r.perm = EAxisPerm::Z_XY_1;
 						res.push_back(r);
-					} //else continue;
+					}
 				}
 			}
 			//Y_XZ
 			if constexpr (true) {
 				auto ro = overlap(std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().Y));
 				if (ro) {
-					Result& r = ro.value();
+					::Detail::Result& r = ro.value();
 					if (r.weight < minc) {
 						minc = std::min(r.weight, minc);
 						r.box = b;
 						r.ext = FVector(std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().Y));
 						r.perm = EAxisPerm::Y_XZ_0;
 						res.push_back(r);
-					} //else continue;
+					}
 				}
 			}
 			//Y_ZX
 			if constexpr (true) {
 				auto ro = overlap(std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Y));
 				if (ro) {
-					Result& r = ro.value();
+					::Detail::Result& r = ro.value();
 					if (r.weight < minc) {
 						minc = std::min(r.weight, minc);
 						r.box = b;
 						r.ext = FVector(std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().X), std::ceil(aabb.GetExtent().Y));
 						r.perm = EAxisPerm::Y_XZ_1;
 						res.push_back(r);
-					} //else continue;
+					}
 				}
 			}
 			//X_YZ
 			if constexpr (true) {
 				auto ro = overlap(std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().X));
 				if (ro) {
-					Result& r = ro.value();
+					::Detail::Result& r = ro.value();
 					if (r.weight < minc) {
 						minc = std::min(r.weight, minc);
 						r.box = b;
 						r.ext = FVector(std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().X));
 						r.perm = EAxisPerm::X_YZ_0;
 						res.push_back(r);
-					} //else continue;
+					}
 				}
 			}
 			//X_ZY
-			if constexpr(true){
+			if constexpr (true) {
 				auto ro = overlap(std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().X));
 				if (ro) {
-					Result& r = ro.value();
+					::Detail::Result& r = ro.value();
 					if (r.weight < minc) {
 						minc = std::min(r.weight, minc);
 						r.box = b;
 						r.ext = FVector(std::ceil(aabb.GetExtent().Z), std::ceil(aabb.GetExtent().Y), std::ceil(aabb.GetExtent().X));
 						r.perm = EAxisPerm::X_YZ_1;
 						res.push_back(r);
-					} //else continue;
+					}
 				}
 			}
 
-			//const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
-			//std::cout << "r: " << ee.count() << std::endl;
-
 		}
 
-		const std::chrono::duration<double> e1 = std::chrono::high_resolution_clock::now() - start1;
-		s1 += e1.count();
 
-		//if (k == 1) return;
+		if (res.empty() || !isPacking) break;
 
-		if (res.empty()) break;
-
-		const auto start2 = std::chrono::high_resolution_clock::now();
-		std::sort(res.begin(), res.end(), [](const Result& _e1, const Result& _e2) {
+		std::sort(res.begin(), res.end(), [](const ::Detail::Result& _e1, const ::Detail::Result& _e2) {
 			return _e1.weight < _e2.weight;
 		});
-		const std::chrono::duration<double> e2 = std::chrono::high_resolution_clock::now() - start2;
-		s2 += e2.count();
 
 		const auto& r = res[0];
 		APackerBox* box = r.box->GetDefaultObject<APackerBox>();
 
 		const FBox tar = FBox(
-			FVector(r.n0 - r.ext.X, r.n1 - r.ext.Y, r.h), 
-			FVector(r.n0 + r.ext.X, r.n1 + r.ext.Y, r.h + 2*r.ext.Z));
+			FVector(r.n0 - r.ext.X, r.n1 - r.ext.Y, r.h),
+			FVector(r.n0 + r.ext.X, r.n1 + r.ext.Y, r.h + 2 * r.ext.Z));
 
-		DrawDebugBox(world, tar.GetCenter(), tar.GetExtent(), FColor::Red, true);
+		{
+			std::lock_guard<std::mutex> lock(*m);
+			toSpawn.emplace_back(box->GetClass(), ::Detail::make_transform(
+				r.perm,
+				tar,
+				box->get_aabb().GetCenter(),
+				box->get_relative_location()
+			));
+		}
 
-		vol += tar.GetVolume();
-
-		const auto start3 = std::chrono::high_resolution_clock::now();
-		toSpawn.emplace_back(box->GetClass(), ::Detail::make_transform(
-			r.perm,
-			tar,
-			box->get_aabb().GetCenter(),
-			box->get_relative_location()
-		));
-		const std::chrono::duration<double> e3 = std::chrono::high_resolution_clock::now() - start3;
-		s3 += e3.count();
-		
-		k++;
-
-		//if (k > 50) break;
-
-		//std::cout << "----" << std::endl;
-		//std::cout << int32(tar.Min.X) / Tree::BUCKET_SIZE << ", " << int32(tar.Max.X) / Tree::BUCKET_SIZE  << std::endl;
-		//std::cout << int32(tar.Min.Y) / Tree::BUCKET_SIZE << ", " << int32(tar.Max.Y) / Tree::BUCKET_SIZE << std::endl;
-		
 		std::fill(mm.begin(), mm.end(), false);
 		for (int32 n0 = int32(tar.Min.X) / Tree::BUCKET_SIZE; n0 <= int32(tar.Max.X) / Tree::BUCKET_SIZE; ++n0) {
 			for (int32 n1 = int32(tar.Min.Y) / Tree::BUCKET_SIZE; n1 <= int32(tar.Max.Y) / Tree::BUCKET_SIZE; ++n1) {
@@ -493,27 +442,45 @@ void APackTester::Pack() {
 		for (int32 n0 = int32(tar.Min.X); n0 <= int32(tar.Max.X); ++n0) {
 			for (int32 n1 = int32(tar.Min.Y); n1 <= int32(tar.Max.Y); ++n1) {
 				const int32 i = n1 + n0 * Bounds;
-				//if (i < 0 || i >= map.size()) {
-				//	std::cout << "insert oob" << std::endl;
-				//}
 				map[i] = tar.Max.Z;
 			}
 		}
 
-		//const auto start = std::chrono::high_resolution_clock::now();
-		const auto start4 = std::chrono::high_resolution_clock::now();
-		tree.recompute(mm);
-		const std::chrono::duration<double> e4 = std::chrono::high_resolution_clock::now() - start4;
-		s4 += e4.count();
-		//const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
-		//std::cout << "r: " << ee.count() << std::endl;
+		tree->recompute(mm);
 
-		//std::stringstream ss;
-		//ss << "map_" << k++ << ".png";
-		//image_real<double, false>(Bounds, Bounds, map.data(), ss.str());
 	}
 
-	const std::chrono::duration<double> eet = std::chrono::high_resolution_clock::now() - startt;
+}//APackTester::pack_impl
+
+void APackTester::Pack() {
+	UWorld* world = GetWorld();
+	if (!world) return;
+
+	Clear();
+
+	using namespace MQT2;
+
+	map.resize(Bounds * Bounds);
+	std::fill(map.begin(), map.end(), 0.);
+
+	tree = std::make_unique<Tree>(map, Bounds);
+
+	DrawDebugBox(world, 
+		FVector(Bounds * 0.5, Bounds * 0.5, Height * 0.5),
+		FVector(Bounds * 0.5, Bounds * 0.5, Height * 0.5), FColor::Blue, true);
+
+	//---------------
+
+	isPacking = true;
+
+	future = std::make_unique<TFuture<bool>>(AsyncThread([this]() -> bool {
+		pack_impl();
+		std::cout << "done" << std::endl;
+		return true;
+		})
+	);
+
+	/*const std::chrono::duration<double> eet = std::chrono::high_resolution_clock::now() - startt;
 	std::cout << "Spawned " << k << " boxes in " << eet.count() << "s" << std::endl;
 	std::cout << "overlap: " << s1 << "s" << std::endl;
 	std::cout << "sort: " << s2 << "s" << std::endl;
@@ -521,13 +488,9 @@ void APackTester::Pack() {
 	std::cout << "rebuild: " << s4 << "s" << std::endl;
 	std::cout << "#overlaps: " << kkk << std::endl;
 	std::cout << "t/overlap: " << s1 / double(kkk) << "s" << std::endl;
-	std::cout << "Volume: " << (1. / double(Bounds * Bounds * Height) * 100. * vol) << "%" << std::endl;
+	std::cout << "Volume: " << (1. / double(Bounds * Bounds * Height) * 100. * vol) << "%" << std::endl;*/
 
-	FActorSpawnParameters params;
-	params.bHideFromSceneOutliner = true;
-	for (const auto& [c, t] : toSpawn) {
-		world->SpawnActor<AActor>(c, t, params);
-	}
+
 }
 
 void APackTester::StepForward() {

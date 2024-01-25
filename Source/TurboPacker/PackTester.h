@@ -4,6 +4,10 @@
 #include "GameFramework/Actor.h"
 #include "lode/lodepng.h"
 
+#include "MQT2.hpp"
+
+#include "Async/Async.h"
+
 #include "PackTester.generated.h"
 
 /*
@@ -32,7 +36,15 @@ namespace Detail {
 		const FBox& _target,
 		const FVector& _pivot_offset,
 		const FVector& _relative_offset
-	);
+	);//make_transform
+
+	struct Result {
+		double weight;
+		int32 n0, n1, h;
+		FVector ext;
+		EAxisPerm perm;
+		TSubclassOf<class APackerBox> box;
+	};//Result
 
 }//Detail
 
@@ -40,8 +52,19 @@ UCLASS(Blueprintable, BlueprintType)
 class TURBOPACKER_API APackTester : public AActor {
 	GENERATED_BODY()
 
-	int32 idx = 0;
-	TArray<TPair<FTransform, int32>> cache;
+	using Tree = MQT2::MedianQuadTree<float, 15>;
+
+	std::unique_ptr<std::mutex> m;
+	std::vector<std::pair<TSubclassOf<APackerBox>, FTransform>> toSpawn;
+
+	bool isPacking = false;
+
+	std::vector<float> map;
+	std::unique_ptr<Tree> tree;
+
+	std::unique_ptr<TFuture<bool>> future;
+
+	void pack_impl();
 
 public:
 
@@ -54,6 +77,10 @@ public:
 	UPROPERTY(EditDefaultsOnly)
 	TArray<TSubclassOf<class APackerBox>> Boxes;
 
+	APackTester();
+
+	void Tick(float _delta) override;
+	virtual bool ShouldTickIfViewportsOnly() const override { return true; }
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = Packer)
 	void Clear();
@@ -69,6 +96,8 @@ public:
 
 };//ASpectralPacker
 
+//--------------------------------------
+
 UCLASS(Blueprintable, BlueprintType)
 class TURBOPACKER_API APackerBox : public AActor {
 	GENERATED_BODY()
@@ -83,6 +112,8 @@ public:
 	virtual FVector get_relative_location() const { return FVector(0.); }
 
 };//APackerBox
+
+//--------------------------------------
 
 template<class R, bool LogScaling>
 inline void image_real(
