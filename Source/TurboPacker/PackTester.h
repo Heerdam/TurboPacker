@@ -38,9 +38,12 @@ namespace Detail {
 	);//make_transform
 
 	struct Result {
+		bool isRandomBox;
+		FTransform trans;
 		double weight;
 		int32 n0, n1, h;
 		FVector ext;
+		FVector ext_org;
 		EAxisPerm perm;
 		TSubclassOf<class APackerBox> box;
 	};//Result
@@ -107,30 +110,63 @@ UCLASS(Blueprintable, BlueprintType)
 class TURBOPACKER_API UOnlinePackerConfig : public UObject {
 	GENERATED_BODY()
 public:
-	UPROPERTY(EditDefaultsOnly)
+
+	UPROPERTY(EditDefaultsOnly, Category = General)
+	bool UseRandomSeed = true;
+
+	UPROPERTY(EditDefaultsOnly, Category = General)
+	uint64 Seed = 1234567890;
+
+	UPROPERTY(EditDefaultsOnly, Category = General)
 	int32 Bounds = 480;
 
-	UPROPERTY(EditDefaultsOnly)
+	UPROPERTY(EditDefaultsOnly, Category = General)
 	int32 Height = 150;
 
-	UPROPERTY(EditDefaultsOnly)
+	//-------------------------
+
+	UPROPERTY(EditDefaultsOnly, Category = RandomBox)
+	bool UseRandomBox = false;
+
+	UPROPERTY(EditDefaultsOnly, Category = RandomBox)
+	TSubclassOf<class ARandomBox> RandomBox;
+
+	UPROPERTY(EditDefaultsOnly, Category = RandomBox)
+	int32 EmptryTries = 25;
+
+	UPROPERTY(EditDefaultsOnly, Category = RandomBox)
+	int32 MaxEmptryTries = 50;
+
+	UPROPERTY(EditDefaultsOnly, Category = RandomBox)
+	double MinBoxSize = 250.;
+
+	UPROPERTY(EditDefaultsOnly, Category = RandomBox)
+	double MaxBoxSize = 1500.;
+
+	//-------------------------
+
+	UPROPERTY(EditDefaultsOnly, Category = BoxList)
+	bool ShuffleBoxes = false;
+
+	UPROPERTY(EditDefaultsOnly, Category = BoxList)
 	TArray<FPPair> Boxes;
+
 };//UOnlinePackerConfig
 
 UCLASS(Blueprintable, BlueprintType)
 class TURBOPACKER_API AOnlinePacker : public AActor {
 	GENERATED_BODY()
 
-	using Tree = MQT2::MedianQuadTree<float, 15>;
+	using Tree = MQT2::MedianQuadTree<int16, 15>;
 
 	std::unique_ptr<std::mutex> m;
-	std::vector< std::pair<TSubclassOf<APackerBox>, FTransform> > toSpawn;
+	std::vector< Detail::Result > toSpawn;
 
 	std::queue<APackerBox*> q;
 
 	bool isPacking = false;
 
-	std::vector<float> map;
+	std::vector<int16> map;
 	std::unique_ptr<Tree> tree;
 
 	std::unique_ptr<TFuture<bool>> future;
@@ -139,8 +175,13 @@ class TURBOPACKER_API AOnlinePacker : public AActor {
 	void pack_impl();
 
 	double vol = 0.;
+	int32 bcc = 0;
+	int32 mcc = 0;
 
 public:
+
+	UPROPERTY(EditAnywhere)
+	bool AllowOverlap = true;
 
 	UPROPERTY(EditDefaultsOnly)
 	TSubclassOf<class UOnlinePackerConfig> Config;
@@ -156,6 +197,9 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = Packer)
 	void Pack();
 
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = Packer)
+	void PrintResults();
+
 };//AOnlinePacker
 
 //--------------------------------------
@@ -170,12 +214,30 @@ public:
 	UStaticMeshComponent* mesh = nullptr;
 
 	APackerBox();
-	FBox get_aabb() const;
-	virtual FVector get_relative_location() const { return FVector(0.); }
+	virtual FBox get_aabb(const FVector _ext) const;
+	FVector get_relative_location() const { return FVector(0.); }
 	double get_weight() const;
 
 };//APackerBox
 
+UCLASS(Blueprintable, BlueprintType)
+class TURBOPACKER_API ARandomBox : public APackerBox {
+	GENERATED_BODY()
+
+public:
+
+	UPROPERTY(EditDefaultsOnly, Category = Boxler)
+	double MaxSize = 1500.;
+
+	ARandomBox();
+
+	virtual FBox get_aabb(const FVector _ext) const override;
+	void set_to_size(const FVector& _new_size, const double _min_size, const double _max_size);
+
+};//ARandomBox
+
+//--------------------------------------
+//--------------------------------------
 //--------------------------------------
 
 template<class R, bool LogScaling>

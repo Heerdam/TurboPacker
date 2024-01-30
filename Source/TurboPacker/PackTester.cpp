@@ -1,6 +1,8 @@
 
 #include "PackTester.h"
 
+#include "Materials/MaterialInstanceDynamic.h"
+
 
 FTransform Detail::make_transform(
 	EAxisPerm _perm,
@@ -198,7 +200,7 @@ APackerBox::APackerBox() {
 	mesh->SetupAttachment(RootComponent);
 }//APackerBox::APackerBox
 
-FBox APackerBox::get_aabb() const {
+FBox APackerBox::get_aabb(const FVector) const {
 	const FVector s = mesh->GetRelativeScale3D();
 	const FBox bb = mesh->GetStaticMesh()->GetBounds().GetBox();
 	const FVector se = FVector(bb.GetExtent().X * s.X, bb.GetExtent().Y * s.Y, bb.GetExtent().Z * s.Z);
@@ -226,10 +228,36 @@ FBox APackerBox::get_aabb() const {
 
 double APackerBox::get_weight() const {
 	check(mesh);
-	const auto aabb = get_aabb();
+	const auto aabb = get_aabb(FVector());
 	return aabb.GetVolume();
 }//APackerBox::get_weight
 
+//----------------------------------------
+
+ARandomBox::ARandomBox() {
+	
+	
+
+}//ARandomBox::ARandomBox
+
+void ARandomBox::set_to_size(const FVector& _new_size, const double _min_size, const double _max_size) {
+	check(mesh);
+	mesh->SetWorldScale3D(_new_size / 100.);
+	UMaterialInstanceDynamic* mi = UMaterialInstanceDynamic::Create(mesh->GetMaterial(0), nullptr);
+	const double temp = 1. / std::pow(_max_size, 3) * (_new_size.X * _new_size.Y * _new_size.Z);
+	FLinearColor LightColor = FLinearColor::Green;
+	FLinearColor DarkColor = FLinearColor::Blue;
+	mi->SetVectorParameterValue(TEXT("Color"), FLinearColor::LerpUsingHSV(LightColor, DarkColor, temp)); //FColor::MakeFromColorTemperature(FMath::Lerp(1000, 2500, 1. - temp))
+	mesh->SetMaterial(0, mi);
+
+}//ARandomBox::set_to_size
+
+FBox ARandomBox::get_aabb(const FVector _ext) const {
+	return { FVector(-_ext.X, -_ext.Y, -_ext.Z), FVector(_ext.X, _ext.Y, _ext.Z) };
+}
+
+//----------------------------------------
+//----------------------------------------
 //----------------------------------------
 
 APackTester::APackTester() {
@@ -326,7 +354,7 @@ void APackTester::pack_impl() {
 
 		for (const auto& b : Boxes) {
 
-			const FBox aabb = b->GetDefaultObject<APackerBox>()->get_aabb();
+			const FBox aabb = b->GetDefaultObject<APackerBox>()->get_aabb(FVector());
 			c += 6;
 
 			//Z_XY
@@ -342,6 +370,7 @@ void APackTester::pack_impl() {
 							minc = std::min(r.weight, minc.load());
 							r.box = _b;
 							r.ext = FVector(_ext0, _ext1, _h);
+							r.ext_org = FVector(_ext0, _ext1, _h);
 							r.perm = _perm;
 							std::lock_guard<std::mutex> l(mut);
 							res.push_back(r);
@@ -364,6 +393,7 @@ void APackTester::pack_impl() {
 							minc = std::min(r.weight, minc.load());
 							r.box = _b;
 							r.ext = FVector(_ext0, _ext1, _h);
+							r.ext_org = FVector(_ext1, _ext0, _h);
 							r.perm = _perm;
 							std::lock_guard<std::mutex> l(mut);
 							res.push_back(r);
@@ -386,6 +416,7 @@ void APackTester::pack_impl() {
 							minc = std::min(r.weight, minc.load());
 							r.box = _b;
 							r.ext = FVector(_ext0, _ext1, _h);
+							r.ext_org = FVector(_ext0, _h, _ext1);
 							r.perm = _perm;
 							std::lock_guard<std::mutex> l(mut);
 							res.push_back(r);
@@ -408,6 +439,7 @@ void APackTester::pack_impl() {
 							minc = std::min(r.weight, minc.load());
 							r.box = _b;
 							r.ext = FVector(_ext0, _ext1, _h);
+							r.ext_org = FVector(_ext1, _h, _ext0);
 							r.perm = _perm;
 							std::lock_guard<std::mutex> l(mut);
 							res.push_back(r);
@@ -430,6 +462,7 @@ void APackTester::pack_impl() {
 							minc = std::min(r.weight, minc.load());
 							r.box = _b;
 							r.ext = FVector(_ext0, _ext1, _h);
+							r.ext_org = FVector(_h, _ext0, _ext1);
 							r.perm = _perm;
 							std::lock_guard<std::mutex> l(mut);
 							res.push_back(r);
@@ -452,6 +485,7 @@ void APackTester::pack_impl() {
 							minc = std::min(r.weight, minc.load());
 							r.box = _b;
 							r.ext = FVector(_ext0, _ext1, _h);
+							r.ext_org = FVector(_h, _ext1, _ext0);
 							r.perm = _perm;
 							std::lock_guard<std::mutex> l(mut);
 							res.push_back(r);
@@ -483,7 +517,7 @@ void APackTester::pack_impl() {
 			toSpawn.emplace_back(box->GetClass(), ::Detail::make_transform(
 				r.perm,
 				tar,
-				box->get_aabb().GetCenter(),
+				box->get_aabb(FVector()).GetCenter(),
 				box->get_relative_location()
 			));
 		}
@@ -557,6 +591,8 @@ void APackTester::Pack() {
 //  Spawned 648 boxes in 160.478s - 0.247s/box
 
 //---------------------------------------------------
+//---------------------------------------------------
+//---------------------------------------------------
 
 AOnlinePacker::AOnlinePacker() {
 
@@ -568,21 +604,48 @@ AOnlinePacker::AOnlinePacker() {
 }//AOnlinePacker::AOnlinePacker
 
 void AOnlinePacker::Tick(float _delta) {
+	UOnlinePackerConfig* conf = Config->GetDefaultObject<UOnlinePackerConfig>();
+	UWorld* world = GetWorld();
 
 	if (isPacking) {
+		
 		std::lock_guard<std::mutex> lock(*m);
+		for (const auto& res : toSpawn) {
 
-		UWorld* world = GetWorld();
-		FActorSpawnParameters params;
-		params.bHideFromSceneOutliner = true;
-		for (const auto& [c, t] : toSpawn) {
-			APackerBox* box = world->SpawnActor<APackerBox>(c, t, params);
-			vol += box->get_aabb().GetVolume();
+			FActorSpawnParameters params;
+			params.bHideFromSceneOutliner = true;
+			params.CustomPreSpawnInitalization = [&](AActor* _a) {
+			ARandomBox* b = Cast<ARandomBox>(_a);
+				b->set_to_size(2 * res.ext_org, conf->MinBoxSize, conf->MaxBoxSize);
+			};
+
+			if (res.isRandomBox) {
+				ARandomBox* b = world->SpawnActor<ARandomBox>(res.box, res.trans, params);
+				
+			} else {
+				world->SpawnActor<APackerBox>(res.box, res.trans, params);	
+			}
+			const FVector size = 2 * res.ext;
+			vol += size.X * size.Y * size.Z;
+			bcc++;
 		}
 		toSpawn.clear();
 	}
 
+	if (GEngine) {		
+		const double vp = 1. / double(conf->Bounds * conf->Bounds * conf->Height) * vol;
+		GEngine->AddOnScreenDebugMessage(1, 15.0f, FColor::Green, FString::Printf(TEXT("Boxes: %f"), vp));
+		GEngine->AddOnScreenDebugMessage(2, 15.0f, FColor::Green, FString::Printf(TEXT("Volume: %d"), bcc));
+	}
+
 }//AOnlinePacker::Tick
+
+void AOnlinePacker::PrintResults() {
+	UOnlinePackerConfig* conf = Config->GetDefaultObject<UOnlinePackerConfig>();
+	std::cout << 1. / double(conf->Bounds * conf->Bounds * conf->Height) * vol << "%" << std::endl;
+	std::cout << bcc << " boxes" << std::endl;
+	std::cout << mcc << " missed" << std::endl;
+}
 
 void AOnlinePacker::Clear() {
 	UWorld* world = GetWorld();
@@ -598,6 +661,8 @@ void AOnlinePacker::Clear() {
 	toSpawn.clear();
 	q = std::queue<APackerBox*>();
 	vol = 0.;
+	bcc = 0;
+	mcc = 0;
 
 	FlushPersistentDebugLines(world);
 
@@ -621,14 +686,18 @@ void AOnlinePacker::pack_impl() {
 			for (int32 n1 = _ext1; n1 < conf->Bounds - _ext1; ++n1) {
 
 				const int32 i = n1 + n0 * conf->Bounds;
-				if (map[i] + 2 * _h >= conf->Height) continue;
+				if (int32(map[i]) + 2 * _h >= conf->Height) continue;
 
 				const auto [l, m, h] = tree->check_overlap(
 					Vec2{ int32_t(n0 - _ext0), int32_t(n1 - _ext1) },
 					Vec2{ int32_t(n0 + _ext0), int32_t(n1 + _ext1) },
 					map[i]);
 
-				if (h != 0 ) continue;
+				if (AllowOverlap) {
+					if (h != 0) continue;
+				} else {
+					if (h != 0 || l != 0) continue;
+				}
 
 				Result out;
 				out.n0 = n0;
@@ -647,6 +716,13 @@ void AOnlinePacker::pack_impl() {
 	mm.resize(bc * bc);
 	std::fill(mm.begin(), mm.end(), true);
 
+	int32 et = 0;
+
+	std::random_device rd;
+	conf->Seed = conf->UseRandomSeed ? rd() : conf->Seed;
+	Rand g(conf->Seed);
+	DistD dist = DistD(conf->MinBoxSize, conf->MaxBoxSize);
+
 	while (!q.empty()) {
 
 		std::mutex mut;
@@ -656,11 +732,15 @@ void AOnlinePacker::pack_impl() {
 		std::atomic<int32> c = 0;
 
 		APackerBox* next = q.front();
-		q.pop();
+
+		if(!conf->UseRandomBox)
+			q.pop();
 
 		const auto b = next->GetClass();
 
-		const FBox aabb = next->get_aabb();
+		const FVector nextSize = conf->UseRandomBox ? FVector(dist(g), dist(g), dist(g)) * 0.5 : FVector(0.);
+
+		const FBox aabb = next->get_aabb(nextSize);
 		c += 6;
 
 		//Z_XY
@@ -676,7 +756,9 @@ void AOnlinePacker::pack_impl() {
 						minc = std::min(r.weight, minc.load());
 						r.box = _b;
 						r.ext = FVector(_ext0, _ext1, _h);
+						r.ext_org = FVector(_ext0, _ext1, _h);
 						r.perm = _perm;
+						r.isRandomBox = conf->UseRandomBox;
 						std::lock_guard<std::mutex> l(mut);
 						res.push_back(r);
 					}
@@ -698,7 +780,9 @@ void AOnlinePacker::pack_impl() {
 						minc = std::min(r.weight, minc.load());
 						r.box = _b;
 						r.ext = FVector(_ext0, _ext1, _h);
+						r.ext_org = FVector(_ext1, _ext0, _h);
 						r.perm = _perm;
+						r.isRandomBox = conf->UseRandomBox;
 						std::lock_guard<std::mutex> l(mut);
 						res.push_back(r);
 					}
@@ -720,7 +804,9 @@ void AOnlinePacker::pack_impl() {
 						minc = std::min(r.weight, minc.load());
 						r.box = _b;
 						r.ext = FVector(_ext0, _ext1, _h);
+						r.ext_org = FVector(_ext0, _h, _ext1);
 						r.perm = _perm;
+						r.isRandomBox = conf->UseRandomBox;
 						std::lock_guard<std::mutex> l(mut);
 						res.push_back(r);
 					}
@@ -742,7 +828,9 @@ void AOnlinePacker::pack_impl() {
 						minc = std::min(r.weight, minc.load());
 						r.box = _b;
 						r.ext = FVector(_ext0, _ext1, _h);
+						r.ext_org = FVector(_ext1, _h, _ext0);
 						r.perm = _perm;
+						r.isRandomBox = conf->UseRandomBox;
 						std::lock_guard<std::mutex> l(mut);
 						res.push_back(r);
 					}
@@ -764,7 +852,9 @@ void AOnlinePacker::pack_impl() {
 						minc = std::min(r.weight, minc.load());
 						r.box = _b;
 						r.ext = FVector(_ext0, _ext1, _h);
+						r.ext_org = FVector(_h, _ext0, _ext1);
 						r.perm = _perm;
+						r.isRandomBox = conf->UseRandomBox;
 						std::lock_guard<std::mutex> l(mut);
 						res.push_back(r);
 					}
@@ -786,7 +876,9 @@ void AOnlinePacker::pack_impl() {
 						minc = std::min(r.weight, minc.load());
 						r.box = _b;
 						r.ext = FVector(_ext0, _ext1, _h);
+						r.ext_org = FVector(_h, _ext1, _ext0);
 						r.perm = _perm;
+						r.isRandomBox = conf->UseRandomBox;
 						std::lock_guard<std::mutex> l(mut);
 						res.push_back(r);
 					}
@@ -798,27 +890,39 @@ void AOnlinePacker::pack_impl() {
 		while (c != 0) {}
 
 		if (!isPacking) break;
-		if (res.empty()) continue;
+		if (res.empty()) {
+			et++;
+			mcc++;
+			if (conf->UseRandomBox && mcc > conf->MaxEmptryTries) break;
+			if (conf->UseRandomBox && et > conf->EmptryTries) break;
+			continue;
+		}
+
+		et = 0;
 
 		std::sort(res.begin(), res.end(), [](const ::Detail::Result& _e1, const ::Detail::Result& _e2) {
 			return _e1.weight < _e2.weight;
-			});
+		});
 
-		const auto& r = res[0];
+		auto& r = res[0];
 		APackerBox* box = r.box->GetDefaultObject<APackerBox>();
 
 		const FBox tar = FBox(
 			FVector(r.n0 - r.ext.X, r.n1 - r.ext.Y, r.h),
 			FVector(r.n0 + r.ext.X, r.n1 + r.ext.Y, r.h + 2 * r.ext.Z));
 
+		//DrawDebugBox(GetWorld(), tar.GetCenter(), tar.GetExtent(), FColor::Red, true);
+
+		r.trans = ::Detail::make_transform(
+			r.perm,
+			tar,
+			box->get_aabb(r.ext).GetCenter(),
+			box->get_relative_location()
+		);
+
 		{
 			std::lock_guard<std::mutex> lock(*m);
-			toSpawn.emplace_back(box->GetClass(), ::Detail::make_transform(
-				r.perm,
-				tar,
-				box->get_aabb().GetCenter(),
-				box->get_relative_location()
-			));
+			toSpawn.push_back(r);
 		}
 
 		std::fill(mm.begin(), mm.end(), false);
@@ -869,18 +973,29 @@ void AOnlinePacker::Pack() {
 	//---------------
 
 	std::vector<APackerBox*> qq;
-	for (const auto& p : conf->Boxes) {
-		for (int32 i = 0; i < p.Count; ++i)
-			qq.push_back(p.Type->GetDefaultObject<APackerBox>());
+
+	if (!conf->UseRandomBox) {
+		for (const auto& p : conf->Boxes) {
+			for (int32 i = 0; i < p.Count; ++i)
+				qq.push_back(p.Type->GetDefaultObject<APackerBox>());
+		}
+
+		if (conf->ShuffleBoxes) {
+			std::sort(qq.begin(), qq.end(), [](APackerBox* _o1, APackerBox* _o2) {
+				return _o1->get_weight() > _o2->get_weight();
+			});
+		} else {
+			std::random_device rd;
+			conf->Seed = conf->UseRandomSeed ? rd() : conf->Seed;
+			std::mt19937 g(conf->Seed);
+			std::shuffle(qq.begin(), qq.end(), g);
+		}
+		
+		for (const auto& ptr : qq)
+			q.push(ptr);
+	} else {
+		q.push(conf->RandomBox->GetDefaultObject<APackerBox>());
 	}
-
-	std::sort(qq.begin(), qq.end(), [](APackerBox* _o1, APackerBox* _o2) {
-		return _o1->get_weight() > _o2->get_weight();
-
-	});
-
-	for (const auto& ptr : qq)
-		q.push(ptr);
 
 	//---------------
 
@@ -891,9 +1006,6 @@ void AOnlinePacker::Pack() {
 		pack_impl();
 		const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
 		std::cout << "done (" << ee.count() << "s)" << std::endl;
-
-		UOnlinePackerConfig* conf = Config->GetDefaultObject<UOnlinePackerConfig>();
-		std::cout << 1. / double(conf->Bounds * conf->Bounds * conf->Height) * vol << std::endl;
 		return true;
 		})
 	);
