@@ -2,6 +2,10 @@
 
 #include "Util.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/DefaultPawn.h"
+#include "GameFramework/PlayerController.h"
+#include "InputActionValue.h"
 #include "lode/lodepng.h"
 
 #include "MQT2.hpp"
@@ -201,6 +205,38 @@ public:
 	void PrintResults();
 
 };//AOnlinePacker
+
+//--------------------------------------
+
+UCLASS(Blueprintable, BlueprintType)
+class TURBOPACKER_API AObserverController : public APlayerController {
+	GENERATED_BODY()
+
+	void Pack(const FInputActionValue& Value);
+	void Clear(const FInputActionValue& Value);
+
+public:
+	UPROPERTY(EditDefaultsOnly)
+	class UInputMappingContext* IA_context;
+
+	UPROPERTY(EditDefaultsOnly)
+	class AOnlinePacker* Packer;
+
+	AObserverController() = default;
+	void BeginPlay() override;
+	void OnPossess(APawn* aPawn) override;
+	void SetupInputComponent() override;
+};//AObserverController
+
+//UCLASS(Blueprintable, BlueprintType)
+//class TURBOPACKER_API AObserver : public ADefaultPawn {
+//	GENERATED_BODY()
+//
+//public:
+//	AObserver();
+//	void BeginPlay() override;
+//	void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+//};//AObserver
 
 //--------------------------------------
 

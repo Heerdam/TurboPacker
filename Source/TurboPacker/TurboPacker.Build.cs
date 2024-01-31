@@ -9,7 +9,14 @@ public class TurboPacker : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "OutputLog" });
+		PublicDependencyModuleNames.AddRange(new string[] { 
+            "Core", 
+            "CoreUObject", 
+            "Engine", 
+            "InputCore",
+            "EnhancedInput",
+            "OutputLog" 
+        });
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
 

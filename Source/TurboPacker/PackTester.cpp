@@ -2,7 +2,11 @@
 #include "PackTester.h"
 
 #include "Materials/MaterialInstanceDynamic.h"
-
+#include "Kismet/GameplayStatics.h"
+#include "EnhancedActionKeyMapping.h"
+#include "EnhancedInputComponent.h"
+#include "EnhancedInputSubsystems.h"
+#include "InputMappingContext.h"
 
 FTransform Detail::make_transform(
 	EAxisPerm _perm,
@@ -234,20 +238,18 @@ double APackerBox::get_weight() const {
 
 //----------------------------------------
 
-ARandomBox::ARandomBox() {
-	
-	
-
-}//ARandomBox::ARandomBox
+ARandomBox::ARandomBox() {}//ARandomBox::ARandomBox
 
 void ARandomBox::set_to_size(const FVector& _new_size, const double _min_size, const double _max_size) {
 	check(mesh);
 	mesh->SetWorldScale3D(_new_size / 100.);
 	UMaterialInstanceDynamic* mi = UMaterialInstanceDynamic::Create(mesh->GetMaterial(0), nullptr);
-	const double temp = 1. / std::pow(_max_size, 3) * (_new_size.X * _new_size.Y * _new_size.Z);
-	FLinearColor LightColor = FLinearColor::Green;
-	FLinearColor DarkColor = FLinearColor::Blue;
-	mi->SetVectorParameterValue(TEXT("Color"), FLinearColor::LerpUsingHSV(LightColor, DarkColor, temp)); //FColor::MakeFromColorTemperature(FMath::Lerp(1000, 2500, 1. - temp))
+	const double temp = 1. - 1. / std::pow(_max_size, 3) * (_new_size.X * _new_size.Y * _new_size.Z);
+	//const FLinearColor c1 = FLinearColor::Blue;
+	//const FLinearColor c2 = FLinearColor::Green;
+	//const FLinearColor c3 = FLinearColor::Red;
+	//const FLinearColor res = temp <= 0.5 ? FLinearColor::LerpUsingHSV(c1, c2, temp * 2.) : FLinearColor::LerpUsingHSV(c2, c3, (temp - 0.5) * 2.);
+	mi->SetVectorParameterValue(TEXT("Color"), FColor::MakeRedToGreenColorFromScalar(temp));
 	mesh->SetMaterial(0, mi);
 
 }//ARandomBox::set_to_size
@@ -255,6 +257,58 @@ void ARandomBox::set_to_size(const FVector& _new_size, const double _min_size, c
 FBox ARandomBox::get_aabb(const FVector _ext) const {
 	return { FVector(-_ext.X, -_ext.Y, -_ext.Z), FVector(_ext.X, _ext.Y, _ext.Z) };
 }
+
+//----------------------------------------
+//----------------------------------------
+//----------------------------------------
+
+void AObserverController::BeginPlay() {
+	Super::BeginPlay();
+
+	UWorld* world = GetWorld();
+	if (world) {
+		TArray<AActor*> p;
+		UGameplayStatics::GetAllActorsOfClass(world, AOnlinePacker::StaticClass(), p);
+		if (!p.IsEmpty())
+			Packer = Cast<AOnlinePacker>(p[0]);
+	}
+}//AObserverController::BeginPlay
+
+void AObserverController::OnPossess(APawn* aPawn) {
+	Super::OnPossess(aPawn);
+
+	if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer())) {
+		Subsystem->AddMappingContext(IA_context, 0);
+	}
+
+}//AObserverController::OnPossess
+
+void AObserverController::SetupInputComponent() {
+	Super::SetupInputComponent();
+
+	UEnhancedInputComponent* input = CastChecked<UEnhancedInputComponent>(InputComponent);
+	if (input) {
+		//Pack
+		input->BindAction(IA_context->GetMapping(0).Action, ETriggerEvent::Triggered, this, &AObserverController::Pack);
+		
+
+		//Clear
+		input->BindAction(IA_context->GetMapping(1).Action, ETriggerEvent::Triggered, this, &AObserverController::Clear);
+	}
+}//AObserverController::SetupInputComponent
+
+void AObserverController::Pack(const FInputActionValue& Value) {
+	std::cout << "ding" << std::endl;
+	if (Packer) {
+		Packer->Pack();
+	}
+}// AObserverController::Pack
+
+void AObserverController::Clear(const FInputActionValue& Value) {
+	if (Packer) {
+		Packer->Clear();
+	}
+}//AObserverController::Clear
 
 //----------------------------------------
 //----------------------------------------
@@ -634,8 +688,9 @@ void AOnlinePacker::Tick(float _delta) {
 
 	if (GEngine) {		
 		const double vp = 1. / double(conf->Bounds * conf->Bounds * conf->Height) * vol;
-		GEngine->AddOnScreenDebugMessage(1, 15.0f, FColor::Green, FString::Printf(TEXT("Boxes: %f"), vp));
-		GEngine->AddOnScreenDebugMessage(2, 15.0f, FColor::Green, FString::Printf(TEXT("Volume: %d"), bcc));
+		GEngine->AddOnScreenDebugMessage(1, 35.0f, FColor::Green, FString::Printf(TEXT("Boxes: %f"), vp));
+		GEngine->AddOnScreenDebugMessage(2, 35.0f, FColor::Red, FString::Printf(TEXT("Discarded: %d"), mcc));
+		GEngine->AddOnScreenDebugMessage(3, 35.0f, FColor::Green, FString::Printf(TEXT("Volume: %d"), bcc));
 	}
 
 }//AOnlinePacker::Tick
