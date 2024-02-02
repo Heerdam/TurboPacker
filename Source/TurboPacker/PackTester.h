@@ -184,6 +184,17 @@ class TURBOPACKER_API AOnlinePacker : public AActor {
 
 public:
 
+	UFUNCTION(BlueprintCallable)
+	double get_pack_percent();
+
+	UFUNCTION(BlueprintCallable)
+	int32 get_bcc() { return bcc; }
+
+	UFUNCTION(BlueprintCallable)
+	int32 get_mcc() { return mcc; }
+	
+	//----------------
+
 	UPROPERTY(EditAnywhere)
 	bool AllowOverlap = true;
 

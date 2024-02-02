@@ -15,7 +15,9 @@ public class TurboPacker : ModuleRules
             "Engine", 
             "InputCore",
             "EnhancedInput",
-            "OutputLog" 
+            "OutputLog",
+            "Blutility",
+            "UMG"
         });
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });

@@ -657,6 +657,12 @@ AOnlinePacker::AOnlinePacker() {
 
 }//AOnlinePacker::AOnlinePacker
 
+double AOnlinePacker::get_pack_percent() {
+	UOnlinePackerConfig* conf = Config->GetDefaultObject<UOnlinePackerConfig>();
+	if (conf) return 1. / double(conf->Bounds * conf->Bounds * conf->Height) * vol;
+	else return 0.;
+}//AOnlinePacker::get_pack_percent
+
 void AOnlinePacker::Tick(float _delta) {
 	UOnlinePackerConfig* conf = Config->GetDefaultObject<UOnlinePackerConfig>();
 	UWorld* world = GetWorld();
@@ -733,10 +739,11 @@ void AOnlinePacker::pack_impl() {
 
 	UOnlinePackerConfig* conf = Config->GetDefaultObject<UOnlinePackerConfig>();
 
-	const auto overlap = [&](const int32 _ext0, const int32 _ext1, const int32 _h)->std::optional<::Detail::Result> {
+	const auto overlap = [&](const int32 _ext0, const int32 _ext1, const int32 _h)->std::vector<::Detail::Result> {
 
 		using namespace ::Detail;
 
+		std::vector<::Detail::Result> res;
 		for (int32 n0 = _ext0; n0 < conf->Bounds - _ext0; ++n0) {
 			for (int32 n1 = _ext1; n1 < conf->Bounds - _ext1; ++n1) {
 
@@ -760,11 +767,11 @@ void AOnlinePacker::pack_impl() {
 				out.h = map[i];
 				out.weight = std::pow(double(map[i]), 3) + std::pow(double(l), 2) + std::pow(n0 + n1, 2);
 
-				return { out };
+				res.push_back(out);
 			}
 		}
-		return {};
-		};
+		return res;
+	};
 
 	const int32_t bc = (conf->Bounds / Tree::BUCKET_SIZE);
 	std::vector<bool> mm;
@@ -805,17 +812,18 @@ void AOnlinePacker::pack_impl() {
 				_ext1 = std::ceil(aabb.GetExtent().Y),
 				_h = std::ceil(aabb.GetExtent().Z)]() -> void {
 				auto ro = overlap(_ext0, _ext1, _h);
-				if (ro) {
-					::Detail::Result& r = ro.value();
-					if (r.weight < minc) {
-						minc = std::min(r.weight, minc.load());
-						r.box = _b;
-						r.ext = FVector(_ext0, _ext1, _h);
-						r.ext_org = FVector(_ext0, _ext1, _h);
-						r.perm = _perm;
-						r.isRandomBox = conf->UseRandomBox;
-						std::lock_guard<std::mutex> l(mut);
-						res.push_back(r);
+				if (!ro.empty()) {
+					for (auto& r : ro) {
+						if (r.weight < minc) {
+							minc = std::min(r.weight, minc.load());
+							r.box = _b;
+							r.ext = FVector(_ext0, _ext1, _h);
+							r.ext_org = FVector(_ext0, _ext1, _h);
+							r.perm = _perm;
+							r.isRandomBox = conf->UseRandomBox;
+							std::lock_guard<std::mutex> l(mut);
+							res.push_back(r);
+						}
 					}
 				}
 				c--;
@@ -829,17 +837,18 @@ void AOnlinePacker::pack_impl() {
 				_ext1 = std::ceil(aabb.GetExtent().X),
 				_h = std::ceil(aabb.GetExtent().Z)]() -> void {
 				auto ro = overlap(_ext0, _ext1, _h);
-				if (ro) {
-					::Detail::Result& r = ro.value();
-					if (r.weight < minc) {
-						minc = std::min(r.weight, minc.load());
-						r.box = _b;
-						r.ext = FVector(_ext0, _ext1, _h);
-						r.ext_org = FVector(_ext1, _ext0, _h);
-						r.perm = _perm;
-						r.isRandomBox = conf->UseRandomBox;
-						std::lock_guard<std::mutex> l(mut);
-						res.push_back(r);
+				if (!ro.empty()) {
+					for (auto& r : ro) {
+						if (r.weight < minc) {
+							minc = std::min(r.weight, minc.load());
+							r.box = _b;
+							r.ext = FVector(_ext0, _ext1, _h);
+							r.ext_org = FVector(_ext1, _ext0, _h);
+							r.perm = _perm;
+							r.isRandomBox = conf->UseRandomBox;
+							std::lock_guard<std::mutex> l(mut);
+							res.push_back(r);
+						}
 					}
 				}
 				c--;
@@ -853,17 +862,18 @@ void AOnlinePacker::pack_impl() {
 				_ext1 = std::ceil(aabb.GetExtent().Z),
 				_h = std::ceil(aabb.GetExtent().Y)]() -> void {
 				auto ro = overlap(_ext0, _ext1, _h);
-				if (ro) {
-					::Detail::Result& r = ro.value();
-					if (r.weight < minc) {
-						minc = std::min(r.weight, minc.load());
-						r.box = _b;
-						r.ext = FVector(_ext0, _ext1, _h);
-						r.ext_org = FVector(_ext0, _h, _ext1);
-						r.perm = _perm;
-						r.isRandomBox = conf->UseRandomBox;
-						std::lock_guard<std::mutex> l(mut);
-						res.push_back(r);
+				if (!ro.empty()) {
+					for (auto& r : ro) {
+						if (r.weight < minc) {
+							minc = std::min(r.weight, minc.load());
+							r.box = _b;
+							r.ext = FVector(_ext0, _ext1, _h);
+							r.ext_org = FVector(_ext0, _h, _ext1);
+							r.perm = _perm;
+							r.isRandomBox = conf->UseRandomBox;
+							std::lock_guard<std::mutex> l(mut);
+							res.push_back(r);
+						}
 					}
 				}
 				c--;
@@ -877,17 +887,18 @@ void AOnlinePacker::pack_impl() {
 				_ext1 = std::ceil(aabb.GetExtent().X),
 				_h = std::ceil(aabb.GetExtent().Y)]() -> void {
 				auto ro = overlap(_ext0, _ext1, _h);
-				if (ro) {
-					::Detail::Result& r = ro.value();
-					if (r.weight < minc) {
-						minc = std::min(r.weight, minc.load());
-						r.box = _b;
-						r.ext = FVector(_ext0, _ext1, _h);
-						r.ext_org = FVector(_ext1, _h, _ext0);
-						r.perm = _perm;
-						r.isRandomBox = conf->UseRandomBox;
-						std::lock_guard<std::mutex> l(mut);
-						res.push_back(r);
+				if (!ro.empty()) {
+					for (auto& r : ro) {
+						if (r.weight < minc) {
+							minc = std::min(r.weight, minc.load());
+							r.box = _b;
+							r.ext = FVector(_ext0, _ext1, _h);
+							r.ext_org = FVector(_ext1, _h, _ext0);
+							r.perm = _perm;
+							r.isRandomBox = conf->UseRandomBox;
+							std::lock_guard<std::mutex> l(mut);
+							res.push_back(r);
+						}
 					}
 				}
 				c--;
@@ -901,17 +912,18 @@ void AOnlinePacker::pack_impl() {
 				_ext1 = std::ceil(aabb.GetExtent().Z),
 				_h = std::ceil(aabb.GetExtent().X)]() -> void {
 				auto ro = overlap(_ext0, _ext1, _h);
-				if (ro) {
-					::Detail::Result& r = ro.value();
-					if (r.weight < minc) {
-						minc = std::min(r.weight, minc.load());
-						r.box = _b;
-						r.ext = FVector(_ext0, _ext1, _h);
-						r.ext_org = FVector(_h, _ext0, _ext1);
-						r.perm = _perm;
-						r.isRandomBox = conf->UseRandomBox;
-						std::lock_guard<std::mutex> l(mut);
-						res.push_back(r);
+				if (!ro.empty()) {
+					for (auto& r : ro) {
+						if (r.weight < minc) {
+							minc = std::min(r.weight, minc.load());
+							r.box = _b;
+							r.ext = FVector(_ext0, _ext1, _h);
+							r.ext_org = FVector(_h, _ext0, _ext1);
+							r.perm = _perm;
+							r.isRandomBox = conf->UseRandomBox;
+							std::lock_guard<std::mutex> l(mut);
+							res.push_back(r);
+						}
 					}
 				}
 				c--;
@@ -925,17 +937,18 @@ void AOnlinePacker::pack_impl() {
 				_ext1 = std::ceil(aabb.GetExtent().Y),
 				_h = std::ceil(aabb.GetExtent().X)]() -> void {
 				auto ro = overlap(_ext0, _ext1, _h);
-				if (ro) {
-					::Detail::Result& r = ro.value();
-					if (r.weight < minc) {
-						minc = std::min(r.weight, minc.load());
-						r.box = _b;
-						r.ext = FVector(_ext0, _ext1, _h);
-						r.ext_org = FVector(_h, _ext1, _ext0);
-						r.perm = _perm;
-						r.isRandomBox = conf->UseRandomBox;
-						std::lock_guard<std::mutex> l(mut);
-						res.push_back(r);
+				if (!ro.empty()) {
+					for (auto& r : ro) {
+						if (r.weight < minc) {
+							minc = std::min(r.weight, minc.load());
+							r.box = _b;
+							r.ext = FVector(_ext0, _ext1, _h);
+							r.ext_org = FVector(_h, _ext1, _ext0);
+							r.perm = _perm;
+							r.isRandomBox = conf->UseRandomBox;
+							std::lock_guard<std::mutex> l(mut);
+							res.push_back(r);
+						}
 					}
 				}
 				c--;
