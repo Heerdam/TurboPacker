@@ -178,6 +178,7 @@ class TURBOPACKER_API AOnlinePacker : public AActor {
 
 	void pack_impl();
 
+	double last_time = 0.;
 	double vol = 0.;
 	int32 bcc = 0;
 	int32 mcc = 0;
@@ -192,6 +193,9 @@ public:
 
 	UFUNCTION(BlueprintCallable)
 	int32 get_mcc() { return mcc; }
+
+	UFUNCTION(BlueprintCallable)
+	double get_time();
 	
 	//----------------
 

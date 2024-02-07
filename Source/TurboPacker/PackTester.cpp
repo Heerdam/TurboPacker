@@ -244,7 +244,9 @@ void ARandomBox::set_to_size(const FVector& _new_size, const double _min_size, c
 	check(mesh);
 	mesh->SetWorldScale3D(_new_size / 100.);
 	UMaterialInstanceDynamic* mi = UMaterialInstanceDynamic::Create(mesh->GetMaterial(0), nullptr);
-	const double temp = 1. - 1. / std::pow(_max_size, 3) * (_new_size.X * _new_size.Y * _new_size.Z);
+	const double temp = 1. - 1. / (_max_size - _min_size) * ((_new_size.X * _new_size.Y * _new_size.Z) - _min_size);
+	//std::cout << _min_size << ", " << _max_size << ", " << (_new_size.X * _new_size.Y * _new_size.Z) << std::endl;
+	//std::cout << temp << std::endl;
 	//const FLinearColor c1 = FLinearColor::Blue;
 	//const FLinearColor c2 = FLinearColor::Green;
 	//const FLinearColor c3 = FLinearColor::Red;
@@ -663,11 +665,18 @@ double AOnlinePacker::get_pack_percent() {
 	else return 0.;
 }//AOnlinePacker::get_pack_percent
 
+double AOnlinePacker::get_time() {
+	if (isPacking) {
+		const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
+		return ee.count();
+	} else return last_time;
+}//AOnlinePacker::get_pack_percent
+
 void AOnlinePacker::Tick(float _delta) {
 	UOnlinePackerConfig* conf = Config->GetDefaultObject<UOnlinePackerConfig>();
 	UWorld* world = GetWorld();
 
-	if (isPacking) {
+	//if (isPacking) {
 		
 		std::lock_guard<std::mutex> lock(*m);
 		for (const auto& res : toSpawn) {
@@ -690,7 +699,7 @@ void AOnlinePacker::Tick(float _delta) {
 			bcc++;
 		}
 		toSpawn.clear();
-	}
+	//}
 
 	if (GEngine) {		
 		const double vp = 1. / double(conf->Bounds * conf->Bounds * conf->Height) * vol;
@@ -800,7 +809,12 @@ void AOnlinePacker::pack_impl() {
 
 		const auto b = next->GetClass();
 
-		const FVector nextSize = conf->UseRandomBox ? FVector(dist(g), dist(g), dist(g)) * 0.5 : FVector(0.);
+		const auto rbox = [&](const double _vol) -> FVector {
+			const double s = std::pow(_vol, 1. / 3.);
+			return FVector(s) * 0.5;
+		};
+
+		const FVector nextSize = conf->UseRandomBox ? rbox(dist(g)) : next->get_aabb(FVector()).GetExtent();
 
 		const FBox aabb = next->get_aabb(nextSize);
 		c += 6;
@@ -1074,6 +1088,8 @@ void AOnlinePacker::Pack() {
 		pack_impl();
 		const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
 		std::cout << "done (" << ee.count() << "s)" << std::endl;
+		last_time = ee.count();
+		isPacking = false;
 		return true;
 		})
 	);
