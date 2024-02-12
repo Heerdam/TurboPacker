@@ -243,7 +243,7 @@ ARandomBox::ARandomBox() {}//ARandomBox::ARandomBox
 void ARandomBox::set_to_size(const FVector& _new_size, const double _min_size, const double _max_size) {
 	check(mesh);
 	mesh->SetWorldScale3D(_new_size / 100.);
-	UMaterialInstanceDynamic* mi = UMaterialInstanceDynamic::Create(mesh->GetMaterial(0), nullptr);
+	UMaterialInstanceDynamic* mi = UMaterialInstanceDynamic::Create(mesh->GetMaterial(0), this);
 	const double temp = 1. - 1. / (_max_size - _min_size) * ((_new_size.X * _new_size.Y * _new_size.Z) - _min_size);
 	//std::cout << _min_size << ", " << _max_size << ", " << (_new_size.X * _new_size.Y * _new_size.Z) << std::endl;
 	//std::cout << temp << std::endl;
@@ -270,9 +270,9 @@ void AObserverController::BeginPlay() {
 	UWorld* world = GetWorld();
 	if (world) {
 		TArray<AActor*> p;
-		UGameplayStatics::GetAllActorsOfClass(world, AOnlinePacker::StaticClass(), p);
+		UGameplayStatics::GetAllActorsOfClass(world, APacker::StaticClass(), p);
 		if (!p.IsEmpty())
-			Packer = Cast<AOnlinePacker>(p[0]);
+			Packer = Cast<APacker>(p[0]);
 	}
 }//AObserverController::BeginPlay
 
@@ -312,422 +312,64 @@ void AObserverController::Clear(const FInputActionValue& Value) {
 	}
 }//AObserverController::Clear
 
-//----------------------------------------
-//----------------------------------------
-//----------------------------------------
+//---------------------------------------------------
+//---------------------------------------------------
+//---------------------------------------------------
 
-APackTester::APackTester() {
+APacker::APacker() {
 
 	m = std::make_unique<std::mutex>();
 
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.TickInterval = 1.f;
 
-}//APackTester::APackTester
+}//APacker::APacker
 
-void APackTester::Tick(float _delta) {
-
-	if(isPacking){
-		std::lock_guard<std::mutex> lock(*m);
-		
-		UWorld* world = GetWorld();
-		FActorSpawnParameters params;
-		params.bHideFromSceneOutliner = true;
-		for (const auto& [c, t] : toSpawn) {
-			APackerBox* box = world->SpawnActor<APackerBox>(c, t, params);
-		}
-		toSpawn.clear();
-	}
-
-}//APackTester::Tick
-
-void APackTester::Clear() {
-	UWorld* world = GetWorld();
-	if (!world) return;
-
-	{
-		std::lock_guard<std::mutex> lock(*m);
-		isPacking = false;
-	}
-	if (future != nullptr) {
-		future->Wait();
-	}
-	toSpawn.clear();
-
-	FlushPersistentDebugLines(world);
-	
-	TArray<AActor*> tod;
-	UGameplayStatics::GetAllActorsOfClass(world, APackerBox::StaticClass(), tod);
-	for (AActor* a : tod)
-		world->DestroyActor(a);
-}
-
-void APackTester::pack_impl() {
-
-	using namespace MQT2;
-
-	const auto overlap = [&](const int32 _ext0, const int32 _ext1, const int32 _h)->std::optional<::Detail::Result> {
-
-		using namespace ::Detail;
-
-		for (int32 n0 = _ext0; n0 < Bounds - _ext0; ++n0) {
-			for (int32 n1 = _ext1; n1 < Bounds - _ext1; ++n1) {
-
-				const int32 i = n1 + n0 * Bounds;
-				if (map[i] + 2 * _h >= Height) continue;
-
-				const auto [l, m, h] = tree->check_overlap(
-					Vec2{ int32_t(n0 - _ext0), int32_t(n1 - _ext1) },
-					Vec2{ int32_t(n0 + _ext0), int32_t(n1 + _ext1) },
-					map[i]);
-
-				if (h != 0) continue;
-
-				Result out;
-				out.n0 = n0;
-				out.n1 = n1;
-				out.h = map[i];
-				out.weight = std::pow(double(map[i]), 3) + std::pow(double(l), 2) + std::pow(n0 + n1, 2);
-
-				return { out };
-			}
-		}
-		return {};
-	};
-
-	const int32_t bc = (Bounds / Tree::BUCKET_SIZE);
-	std::vector<bool> mm;
-	mm.resize(bc * bc);
-	std::fill(mm.begin(), mm.end(), true);
-
-	while (true) {
-
-		std::mutex mut;
-		std::vector<::Detail::Result> res;
-		std::atomic<double> minc = std::numeric_limits<double>::infinity();
-
-		std::atomic<int32> c = 0;
-
-		for (const auto& b : Boxes) {
-
-			const FBox aabb = b->GetDefaultObject<APackerBox>()->get_aabb(FVector());
-			c += 6;
-
-			//Z_XY
-			AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, 
-				[&, _b = b, _perm = EAxisPerm::Z_XY_0, 
-				_ext0 = std::ceil(aabb.GetExtent().X), 
-				_ext1 = std::ceil(aabb.GetExtent().Y), 
-				_h = std::ceil(aabb.GetExtent().Z)]() -> void {	
-					auto ro = overlap(_ext0, _ext1, _h);
-					if (ro) {
-						::Detail::Result& r = ro.value();
-						if (r.weight < minc) {
-							minc = std::min(r.weight, minc.load());
-							r.box = _b;
-							r.ext = FVector(_ext0, _ext1, _h);
-							r.ext_org = FVector(_ext0, _ext1, _h);
-							r.perm = _perm;
-							std::lock_guard<std::mutex> l(mut);
-							res.push_back(r);
-						}
-					}
-					c--;
-				}
-			);
-
-			//Z_YX
-			AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, 
-				[&, _b = b, _perm = EAxisPerm::Z_XY_1,
-					_ext0 = std::ceil(aabb.GetExtent().Y),
-					_ext1 = std::ceil(aabb.GetExtent().X),
-					_h = std::ceil(aabb.GetExtent().Z)]() -> void {
-					auto ro = overlap(_ext0, _ext1, _h);
-					if (ro) {
-						::Detail::Result& r = ro.value();
-						if (r.weight < minc) {
-							minc = std::min(r.weight, minc.load());
-							r.box = _b;
-							r.ext = FVector(_ext0, _ext1, _h);
-							r.ext_org = FVector(_ext1, _ext0, _h);
-							r.perm = _perm;
-							std::lock_guard<std::mutex> l(mut);
-							res.push_back(r);
-						}
-					}
-					c--;
-				}
-				);
-
-			//Y_XZ
-			AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, 
-				[&, _b = b, _perm = EAxisPerm::Y_XZ_0,
-					_ext0 = std::ceil(aabb.GetExtent().X),
-					_ext1 = std::ceil(aabb.GetExtent().Z),
-					_h = std::ceil(aabb.GetExtent().Y)]() -> void {
-					auto ro = overlap(_ext0, _ext1, _h);
-					if (ro) {
-						::Detail::Result& r = ro.value();
-						if (r.weight < minc) {
-							minc = std::min(r.weight, minc.load());
-							r.box = _b;
-							r.ext = FVector(_ext0, _ext1, _h);
-							r.ext_org = FVector(_ext0, _h, _ext1);
-							r.perm = _perm;
-							std::lock_guard<std::mutex> l(mut);
-							res.push_back(r);
-						}
-					}
-					c--;
-				}
-				);
-
-			//Y_ZX
-			AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, 
-				[&, _b = b, _perm = EAxisPerm::Y_XZ_1,
-					_ext0 = std::ceil(aabb.GetExtent().Z),
-					_ext1 = std::ceil(aabb.GetExtent().X),
-					_h = std::ceil(aabb.GetExtent().Y)]() -> void {
-					auto ro = overlap(_ext0, _ext1, _h);
-					if (ro) {
-						::Detail::Result& r = ro.value();
-						if (r.weight < minc) {
-							minc = std::min(r.weight, minc.load());
-							r.box = _b;
-							r.ext = FVector(_ext0, _ext1, _h);
-							r.ext_org = FVector(_ext1, _h, _ext0);
-							r.perm = _perm;
-							std::lock_guard<std::mutex> l(mut);
-							res.push_back(r);
-						}
-					}
-					c--;
-				}
-				);
-
-			//X_YZ
-			AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, 
-				[&, _b = b, _perm = EAxisPerm::X_YZ_0,
-					_ext0 = std::ceil(aabb.GetExtent().Y),
-					_ext1 = std::ceil(aabb.GetExtent().Z),
-					_h = std::ceil(aabb.GetExtent().X)]() -> void {
-					auto ro = overlap(_ext0, _ext1, _h);
-					if (ro) {
-						::Detail::Result& r = ro.value();
-						if (r.weight < minc) {
-							minc = std::min(r.weight, minc.load());
-							r.box = _b;
-							r.ext = FVector(_ext0, _ext1, _h);
-							r.ext_org = FVector(_h, _ext0, _ext1);
-							r.perm = _perm;
-							std::lock_guard<std::mutex> l(mut);
-							res.push_back(r);
-						}
-					}
-					c--;
-				}
-				);
-
-			//X_ZY
-			AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, 
-				[&, _b = b, _perm = EAxisPerm::X_YZ_1,
-					_ext0 = std::ceil(aabb.GetExtent().Z),
-					_ext1 = std::ceil(aabb.GetExtent().Y),
-					_h = std::ceil(aabb.GetExtent().X)]() -> void {
-					auto ro = overlap(_ext0, _ext1, _h);
-					if (ro) {
-						::Detail::Result& r = ro.value();
-						if (r.weight < minc) {
-							minc = std::min(r.weight, minc.load());
-							r.box = _b;
-							r.ext = FVector(_ext0, _ext1, _h);
-							r.ext_org = FVector(_h, _ext1, _ext0);
-							r.perm = _perm;
-							std::lock_guard<std::mutex> l(mut);
-							res.push_back(r);
-						}
-					}
-					c--;
-				}
-				);
-
-		}
-
-		while(c != 0){}
-
-		if (res.empty() || !isPacking) break;
-
-		std::sort(res.begin(), res.end(), [](const ::Detail::Result& _e1, const ::Detail::Result& _e2) {
-			return _e1.weight < _e2.weight;
-		});
-
-		const auto& r = res[0];
-		APackerBox* box = r.box->GetDefaultObject<APackerBox>();
-
-		const FBox tar = FBox(
-			FVector(r.n0 - r.ext.X, r.n1 - r.ext.Y, r.h),
-			FVector(r.n0 + r.ext.X, r.n1 + r.ext.Y, r.h + 2 * r.ext.Z));
-
-		{
-			std::lock_guard<std::mutex> lock(*m);
-			toSpawn.emplace_back(box->GetClass(), ::Detail::make_transform(
-				r.perm,
-				tar,
-				box->get_aabb(FVector()).GetCenter(),
-				box->get_relative_location()
-			));
-		}
-
-		std::fill(mm.begin(), mm.end(), false);
-		for (int32 n0 = int32(tar.Min.X) / Tree::BUCKET_SIZE; n0 <= int32(tar.Max.X) / Tree::BUCKET_SIZE; ++n0) {
-			for (int32 n1 = int32(tar.Min.Y) / Tree::BUCKET_SIZE; n1 <= int32(tar.Max.Y) / Tree::BUCKET_SIZE; ++n1) {
-				const int32_t iid = n0 + n1 * bc;
-				mm[iid] = true;
-			}
-		}
-
-		for (int32 n0 = int32(tar.Min.X); n0 <= int32(tar.Max.X); ++n0) {
-			for (int32 n1 = int32(tar.Min.Y); n1 <= int32(tar.Max.Y); ++n1) {
-				const int32 i = n1 + n0 * Bounds;
-				map[i] = tar.Max.Z;
-			}
-		}
-
-		tree->recompute(mm);
-
-	}
-
-}//APackTester::pack_impl
-
-void APackTester::Pack() {
-	UWorld* world = GetWorld();
-	if (!world) return;
-
-	Clear();
-
-	using namespace MQT2;
-
-	map.resize(Bounds * Bounds);
-	std::fill(map.begin(), map.end(), 0.);
-
-	tree = std::make_unique<Tree>(map, Bounds);
-
-	DrawDebugBox(world, 
-		FVector(Bounds * 0.5, Bounds * 0.5, Height * 0.5),
-		FVector(Bounds * 0.5, Bounds * 0.5, Height * 0.5), FColor::Blue, true);
-
-	//---------------
-
-	isPacking = true;
-	std::cout << "start" << std::endl;
-	future = std::make_unique<TFuture<bool>>(AsyncThread([this]() -> bool {
-		pack_impl();
-		std::cout << "done" << std::endl;
-		return true;
-		})
-	);
-
-	/*const std::chrono::duration<double> eet = std::chrono::high_resolution_clock::now() - startt;
-	std::cout << "Spawned " << k << " boxes in " << eet.count() << "s" << std::endl;
-	std::cout << "overlap: " << s1 << "s" << std::endl;
-	std::cout << "sort: " << s2 << "s" << std::endl;
-	std::cout << "transform: " << s3 << "s" << std::endl;
-	std::cout << "rebuild: " << s4 << "s" << std::endl;
-	std::cout << "#overlaps: " << kkk << std::endl;
-	std::cout << "t/overlap: " << s1 / double(kkk) << "s" << std::endl;
-	std::cout << "Volume: " << (1. / double(Bounds * Bounds * Height) * 100. * vol) << "%" << std::endl;*/
-
-
-}
-
-// Naive:
-//  Spawned 162 boxes in 57.0335s - 0.352s /box
-// MQT:
-//  Spawned 162 boxes in 15.7559s - 0.09725s/box
-//  Spawned 648 boxes in 160.478s - 0.247s/box
-
-//---------------------------------------------------
-//---------------------------------------------------
-//---------------------------------------------------
-
-AOnlinePacker::AOnlinePacker() {
-
-	m = std::make_unique<std::mutex>();
-
-	PrimaryActorTick.bCanEverTick = true;
-	PrimaryActorTick.TickInterval = 1.f;
-
-}//AOnlinePacker::AOnlinePacker
-
-double AOnlinePacker::get_pack_percent() {
-	UOnlinePackerConfig* conf = Config->GetDefaultObject<UOnlinePackerConfig>();
+double APacker::get_pack_percent() {
+	UPackerConfig* conf = Config->GetDefaultObject<UPackerConfig>();
 	if (conf) return 1. / double(conf->Bounds * conf->Bounds * conf->Height) * vol;
 	else return 0.;
-}//AOnlinePacker::get_pack_percent
+}//APacker::get_pack_percent
 
-double AOnlinePacker::get_time() {
+double APacker::get_time() {
 	if (isPacking) {
 		const std::chrono::duration<double> ee = std::chrono::high_resolution_clock::now() - start;
 		return ee.count();
 	} else return last_time;
-}//AOnlinePacker::get_pack_percent
+}//APacker::get_pack_percent
 
-void AOnlinePacker::Tick(float _delta) {
-	UOnlinePackerConfig* conf = Config->GetDefaultObject<UOnlinePackerConfig>();
+void APacker::Tick(float _delta) {
+	UPackerConfig* conf = Config->GetDefaultObject<UPackerConfig>();
 	UWorld* world = GetWorld();
 
-	//if (isPacking) {
-		
-		std::lock_guard<std::mutex> lock(*m);
-		for (const auto& res : toSpawn) {
+	std::lock_guard<std::mutex> lock(*m);
+	for (const auto& res : toSpawn) {
 
-			FActorSpawnParameters params;
-			params.bHideFromSceneOutliner = true;
-			params.CustomPreSpawnInitalization = [&](AActor* _a) {
-			ARandomBox* b = Cast<ARandomBox>(_a);
-				b->set_to_size(2 * res.ext_org, conf->MinBoxSize, conf->MaxBoxSize);
-			};
+		FActorSpawnParameters params;
+		params.bHideFromSceneOutliner = true;
+		params.CustomPreSpawnInitalization = [&](AActor* _a) {
+		ARandomBox* b = Cast<ARandomBox>(_a);
+			b->set_to_size(2 * res.ext_org, conf->MinBoxSize, conf->MaxBoxSize);
+		};
 
-			if (res.isRandomBox) {
-				ARandomBox* b = world->SpawnActor<ARandomBox>(res.box, res.trans, params);
+		if (res.isRandomBox) {
+			ARandomBox* b = world->SpawnActor<ARandomBox>(res.box, res.trans, params);
 				
-			} else {
-				world->SpawnActor<APackerBox>(res.box, res.trans, params);	
-			}
-			const FVector size = 2 * res.ext;
-			vol += size.X * size.Y * size.Z;
-			bcc++;
+		} else {
+			world->SpawnActor<APackerBox>(res.box, res.trans, params);	
 		}
-		toSpawn.clear();
-	//}
-
-	if (GEngine) {		
-		const double vp = 1. / double(conf->Bounds * conf->Bounds * conf->Height) * vol;
-		GEngine->AddOnScreenDebugMessage(1, 35.0f, FColor::Green, FString::Printf(TEXT("Boxes: %f"), vp));
-		GEngine->AddOnScreenDebugMessage(2, 35.0f, FColor::Red, FString::Printf(TEXT("Discarded: %d"), mcc));
-		GEngine->AddOnScreenDebugMessage(3, 35.0f, FColor::Green, FString::Printf(TEXT("Volume: %d"), bcc));
+		const FVector size = 2 * res.ext;
+		vol += size.X * size.Y * size.Z;
+		bcc++;
 	}
+	toSpawn.clear();
 
-}//AOnlinePacker::Tick
+}//APacker::Tick
 
-void AOnlinePacker::PrintResults() {
-	UOnlinePackerConfig* conf = Config->GetDefaultObject<UOnlinePackerConfig>();
-	std::cout << 1. / double(conf->Bounds * conf->Bounds * conf->Height) * vol << "%" << std::endl;
-	std::cout << bcc << " boxes" << std::endl;
-	std::cout << mcc << " missed" << std::endl;
-}
-
-void AOnlinePacker::Clear() {
+void APacker::Clear() {
 	UWorld* world = GetWorld();
 	if (!world) return;
-
-	{
-		std::lock_guard<std::mutex> lock(*m);
-		isPacking = false;
-	}
-	if (future != nullptr) {
-		future->Wait();
-	}
+	Stop();
 	toSpawn.clear();
 	q = std::queue<APackerBox*>();
 	vol = 0.;
@@ -740,47 +382,108 @@ void AOnlinePacker::Clear() {
 	UGameplayStatics::GetAllActorsOfClass(world, APackerBox::StaticClass(), tod);
 	for (AActor* a : tod)
 		world->DestroyActor(a);
-}//AOnlinePacker::Clear
+}//APacker::Clear
 
-void AOnlinePacker::pack_impl() {
+void APacker::Stop() {
+	std::lock_guard<std::mutex> lock(*m);
+	isPacking = false;
+	if (future != nullptr)
+		future->Wait();
+}//APacker::Stop
+
+std::vector<::Detail::Result> APacker::overlap_impl(
+	const int32 _ext0, 
+	const int32 _ext1, 
+	const int32 _h
+) {
+
+	using namespace MQT2;
+	using namespace ::Detail;
+
+	UPackerConfig* conf = Config->GetDefaultObject<UPackerConfig>();
+
+	std::vector<::Detail::Result> res;
+	for (int32 n0 = _ext0 + 1; n0 < conf->Bounds - _ext0 - 1; ++n0) {
+		for (int32 n1 = _ext1 + 1; n1 < conf->Bounds - _ext1 - 1; ++n1) {
+
+			const int32 i = n1 + n0 * conf->Bounds;
+			if (int32(map[i]) + 2 * _h >= conf->Height) continue;
+
+			const auto [l1, m1, h1] = tree->check_overlap(
+				Vec2{ int32_t(n0 - _ext0), int32_t(n1 - _ext1) },
+				Vec2{ int32_t(n0 + _ext0), int32_t(n1 + _ext1) },
+				map[i]);
+
+			const auto [l2, m2, h2] = tree->check_border_overlap(
+				Vec2{ int32_t(n0 - _ext0) - 1, int32_t(n1 - _ext1) + 1 },
+				Vec2{ int32_t(n0 + _ext0) - 1, int32_t(n1 + _ext1) + 1 },
+				map[i]);
+
+			if (AllowOverlap) {
+				if (h1 != 0) continue;
+			} else {
+				if (h1 != 0 || l1 != 0) continue;
+			}
+
+			Result out;
+			out.n0 = n0;
+			out.n1 = n1;
+			out.b_l = l2;
+			out.b_m = m2;
+			out.b_h = h2;
+			out.h = map[i];
+
+			res.push_back(out);
+		}
+	}
+	return res;
+
+}//APacker::overlap_impl
+
+void APacker::dispatch_impl(
+	std::vector<::Detail::Result>& _res, 
+	std::mutex& _m,
+	std::atomic<double>& _minc,
+	std::atomic<int32>& _c,
+	const int32 _n0, const int32 _n1, 
+	const int32 _h, EAxisPerm _perm,
+	const TSubclassOf<APackerBox>& _b,
+	const std::function<double(const Detail::Result&)>& _cost) {
+
+	AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask,
+		[&, 
+		_b = _b, 
+		_perm = _perm,
+		_ext0 = _n0,
+		_ext1 = _n1,
+		_h = _h, cost = _cost]() -> void {
+			UPackerConfig* conf = Config->GetDefaultObject<UPackerConfig>();
+			auto ro = overlap_impl(_ext0, _ext1, _h);
+			if (!ro.empty()) {
+				for (auto& r : ro) {
+					r.box = _b;
+					r.ext = FVector(_ext0, _ext1, _h);
+					r.ext_org = FVector(_ext0, _ext1, _h);
+					r.perm = _perm;
+					r.isRandomBox = conf->UseRandomBox;
+					r.weight = cost(r);
+					if (r.weight < _minc) {
+						_minc = std::min(r.weight, _minc.load());
+						std::lock_guard<std::mutex> l(_m);
+						_res.push_back(r);
+					}
+				}
+			}
+			_c--;
+		});
+
+}//APacker::dispatch_impl
+
+void APacker::pack_impl() {
 
 	using namespace MQT2;
 
-	UOnlinePackerConfig* conf = Config->GetDefaultObject<UOnlinePackerConfig>();
-
-	const auto overlap = [&](const int32 _ext0, const int32 _ext1, const int32 _h)->std::vector<::Detail::Result> {
-
-		using namespace ::Detail;
-
-		std::vector<::Detail::Result> res;
-		for (int32 n0 = _ext0; n0 < conf->Bounds - _ext0; ++n0) {
-			for (int32 n1 = _ext1; n1 < conf->Bounds - _ext1; ++n1) {
-
-				const int32 i = n1 + n0 * conf->Bounds;
-				if (int32(map[i]) + 2 * _h >= conf->Height) continue;
-
-				const auto [l, m, h] = tree->check_overlap(
-					Vec2{ int32_t(n0 - _ext0), int32_t(n1 - _ext1) },
-					Vec2{ int32_t(n0 + _ext0), int32_t(n1 + _ext1) },
-					map[i]);
-
-				if (AllowOverlap) {
-					if (h != 0) continue;
-				} else {
-					if (h != 0 || l != 0) continue;
-				}
-
-				Result out;
-				out.n0 = n0;
-				out.n1 = n1;
-				out.h = map[i];
-				out.weight = std::pow(double(map[i]), 3) + std::pow(double(l), 2) + std::pow(n0 + n1, 2);
-
-				res.push_back(out);
-			}
-		}
-		return res;
-	};
+	UPackerConfig* conf = Config->GetDefaultObject<UPackerConfig>();
 
 	const int32_t bc = (conf->Bounds / Tree::BUCKET_SIZE);
 	std::vector<bool> mm;
@@ -793,6 +496,23 @@ void AOnlinePacker::pack_impl() {
 	conf->Seed = conf->UseRandomSeed ? rd() : conf->Seed;
 	Rand g(conf->Seed);
 	DistD dist = DistD(conf->MinBoxSize, conf->MaxBoxSize);
+
+	const auto co = [&](const ::Detail::Result& _r) {
+		UPackerConfig* conf = Config->GetDefaultObject<UPackerConfig>();
+		//return std::pow(double(_r.h), 3) + std::pow(_r.n0 + _r.n1, 2);
+		//return std::pow(_r.n0 + _r.n1, 2) - std::pow(_r.b_h, 2);
+		//return std::pow(double(_r.h), 3) + std::pow(std::abs((_r.n0 - conf->Bounds / 2)), 2) + std::pow(std::abs((_r.n1 - conf->Bounds / 2)), 2);
+		//return std::pow(std::abs((_r.n0 - conf->Bounds / 2)), 2) + std::pow(std::abs((_r.n1 - conf->Bounds / 2)), 2);
+
+		const double mw = double(_r.ext.X * _r.ext.Y * _r.ext.Z);
+		const double temp = 1. / (conf->MaxBoxSize - conf->MinBoxSize) * (mw - conf->MinBoxSize);
+
+		if (temp < 0.5) {
+			return std::pow(_r.n0 + _r.n1, 2);
+		} else {
+			return std::pow((conf->Bounds - _r.n0) + (conf->Bounds - _r.n1), 2);
+		}
+	};
 
 	while (!q.empty()) {
 
@@ -820,154 +540,46 @@ void AOnlinePacker::pack_impl() {
 		c += 6;
 
 		//Z_XY
-		AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, 
-			[&, _b = b, _perm = EAxisPerm::Z_XY_0,
-				_ext0 = std::ceil(aabb.GetExtent().X),
-				_ext1 = std::ceil(aabb.GetExtent().Y),
-				_h = std::ceil(aabb.GetExtent().Z)]() -> void {
-				auto ro = overlap(_ext0, _ext1, _h);
-				if (!ro.empty()) {
-					for (auto& r : ro) {
-						if (r.weight < minc) {
-							minc = std::min(r.weight, minc.load());
-							r.box = _b;
-							r.ext = FVector(_ext0, _ext1, _h);
-							r.ext_org = FVector(_ext0, _ext1, _h);
-							r.perm = _perm;
-							r.isRandomBox = conf->UseRandomBox;
-							std::lock_guard<std::mutex> l(mut);
-							res.push_back(r);
-						}
-					}
-				}
-				c--;
-			}
-			);
+		dispatch_impl(res, mut, minc, c,
+			std::ceil(aabb.GetExtent().X),
+			std::ceil(aabb.GetExtent().Y),
+			std::ceil(aabb.GetExtent().Z),
+			EAxisPerm::Z_XY_0, b, co);
 
 		//Z_YX
-		AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, 
-			[&, _b = b, _perm = EAxisPerm::Z_XY_1,
-				_ext0 = std::ceil(aabb.GetExtent().Y),
-				_ext1 = std::ceil(aabb.GetExtent().X),
-				_h = std::ceil(aabb.GetExtent().Z)]() -> void {
-				auto ro = overlap(_ext0, _ext1, _h);
-				if (!ro.empty()) {
-					for (auto& r : ro) {
-						if (r.weight < minc) {
-							minc = std::min(r.weight, minc.load());
-							r.box = _b;
-							r.ext = FVector(_ext0, _ext1, _h);
-							r.ext_org = FVector(_ext1, _ext0, _h);
-							r.perm = _perm;
-							r.isRandomBox = conf->UseRandomBox;
-							std::lock_guard<std::mutex> l(mut);
-							res.push_back(r);
-						}
-					}
-				}
-				c--;
-			}
-			);
+		dispatch_impl(res, mut, minc, c,
+			std::ceil(aabb.GetExtent().Y),
+			std::ceil(aabb.GetExtent().X),
+			std::ceil(aabb.GetExtent().Z),
+			EAxisPerm::Z_XY_1, b, co);
 
 		//Y_XZ
-		AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, 
-			[&, _b = b, _perm = EAxisPerm::Y_XZ_0,
-				_ext0 = std::ceil(aabb.GetExtent().X),
-				_ext1 = std::ceil(aabb.GetExtent().Z),
-				_h = std::ceil(aabb.GetExtent().Y)]() -> void {
-				auto ro = overlap(_ext0, _ext1, _h);
-				if (!ro.empty()) {
-					for (auto& r : ro) {
-						if (r.weight < minc) {
-							minc = std::min(r.weight, minc.load());
-							r.box = _b;
-							r.ext = FVector(_ext0, _ext1, _h);
-							r.ext_org = FVector(_ext0, _h, _ext1);
-							r.perm = _perm;
-							r.isRandomBox = conf->UseRandomBox;
-							std::lock_guard<std::mutex> l(mut);
-							res.push_back(r);
-						}
-					}
-				}
-				c--;
-			}
-			);
+		dispatch_impl(res, mut, minc, c,
+			std::ceil(aabb.GetExtent().X),
+			std::ceil(aabb.GetExtent().Z),
+			std::ceil(aabb.GetExtent().Y),
+			EAxisPerm::Y_XZ_0, b, co);
 
 		//Y_ZX
-		AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, 
-			[&, _b = b, _perm = EAxisPerm::Y_XZ_1,
-				_ext0 = std::ceil(aabb.GetExtent().Z),
-				_ext1 = std::ceil(aabb.GetExtent().X),
-				_h = std::ceil(aabb.GetExtent().Y)]() -> void {
-				auto ro = overlap(_ext0, _ext1, _h);
-				if (!ro.empty()) {
-					for (auto& r : ro) {
-						if (r.weight < minc) {
-							minc = std::min(r.weight, minc.load());
-							r.box = _b;
-							r.ext = FVector(_ext0, _ext1, _h);
-							r.ext_org = FVector(_ext1, _h, _ext0);
-							r.perm = _perm;
-							r.isRandomBox = conf->UseRandomBox;
-							std::lock_guard<std::mutex> l(mut);
-							res.push_back(r);
-						}
-					}
-				}
-				c--;
-			}
-			);
+		dispatch_impl(res, mut, minc, c,
+			std::ceil(aabb.GetExtent().Z),
+			std::ceil(aabb.GetExtent().X),
+			std::ceil(aabb.GetExtent().Y),
+			EAxisPerm::Y_XZ_1, b, co);
 
 		//X_YZ
-		AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, 
-			[&, _b = b, _perm = EAxisPerm::X_YZ_0,
-				_ext0 = std::ceil(aabb.GetExtent().Y),
-				_ext1 = std::ceil(aabb.GetExtent().Z),
-				_h = std::ceil(aabb.GetExtent().X)]() -> void {
-				auto ro = overlap(_ext0, _ext1, _h);
-				if (!ro.empty()) {
-					for (auto& r : ro) {
-						if (r.weight < minc) {
-							minc = std::min(r.weight, minc.load());
-							r.box = _b;
-							r.ext = FVector(_ext0, _ext1, _h);
-							r.ext_org = FVector(_h, _ext0, _ext1);
-							r.perm = _perm;
-							r.isRandomBox = conf->UseRandomBox;
-							std::lock_guard<std::mutex> l(mut);
-							res.push_back(r);
-						}
-					}
-				}
-				c--;
-			}
-			);
+		dispatch_impl(res, mut, minc, c,
+			std::ceil(aabb.GetExtent().Y),
+			std::ceil(aabb.GetExtent().Z),
+			std::ceil(aabb.GetExtent().X),
+			EAxisPerm::X_YZ_0, b, co);
 
 		//X_ZY
-		AsyncTask(ENamedThreads::AnyHiPriThreadHiPriTask, 
-			[&, _b = b, _perm = EAxisPerm::X_YZ_1,
-				_ext0 = std::ceil(aabb.GetExtent().Z),
-				_ext1 = std::ceil(aabb.GetExtent().Y),
-				_h = std::ceil(aabb.GetExtent().X)]() -> void {
-				auto ro = overlap(_ext0, _ext1, _h);
-				if (!ro.empty()) {
-					for (auto& r : ro) {
-						if (r.weight < minc) {
-							minc = std::min(r.weight, minc.load());
-							r.box = _b;
-							r.ext = FVector(_ext0, _ext1, _h);
-							r.ext_org = FVector(_h, _ext1, _ext0);
-							r.perm = _perm;
-							r.isRandomBox = conf->UseRandomBox;
-							std::lock_guard<std::mutex> l(mut);
-							res.push_back(r);
-						}
-					}
-				}
-				c--;
-			}
-			);
+		dispatch_impl(res, mut, minc, c,
+			std::ceil(aabb.GetExtent().Z),
+			std::ceil(aabb.GetExtent().Y),
+			std::ceil(aabb.GetExtent().X),
+			EAxisPerm::X_YZ_1, b, co);
 
 		while (c != 0) {}
 
@@ -1026,9 +638,9 @@ void AOnlinePacker::pack_impl() {
 
 	}
 
-}//AOnlinePacker::pack_impl
+}//APacker::pack_impl
 
-void AOnlinePacker::Pack() {
+void APacker::Pack() {
 	UWorld* world = GetWorld();
 	if (!world) return;
 
@@ -1041,10 +653,24 @@ void AOnlinePacker::Pack() {
 
 	using namespace MQT2;
 
-	UOnlinePackerConfig* conf = Config->GetDefaultObject<UOnlinePackerConfig>();
+	UPackerConfig* conf = Config->GetDefaultObject<UPackerConfig>();
 
 	map.resize(conf->Bounds * conf->Bounds);
 	std::fill(map.begin(), map.end(), 0.);
+
+	for (int32 n0 = 0; n0 < conf->Bounds; ++n0) {
+		const int32 i1 = n0 * conf->Bounds;
+		const int32 i2 = (conf->Bounds - 1) + n0 * conf->Bounds;
+		map[i1] = conf->Height;
+		map[i2] = conf->Height;
+	}
+
+	for (int32 n1 = 0; n1 < conf->Bounds; ++n1) {
+		const int32 i1 = n1;
+		const int32 i2 = n1 + (conf->Bounds - 1) * conf->Bounds;
+		map[i1] = conf->Height;
+		map[i2] = conf->Height;
+	}
 
 	tree = std::make_unique<Tree>(map, conf->Bounds);
 
@@ -1083,6 +709,7 @@ void AOnlinePacker::Pack() {
 
 	isPacking = true;
 	std::cout << "start" << std::endl;
+	std::cout << conf->Seed << std::endl;
 	start = std::chrono::high_resolution_clock::now();
 	future = std::make_unique<TFuture<bool>>(AsyncThread([this]() -> bool {
 		pack_impl();
@@ -1094,4 +721,4 @@ void AOnlinePacker::Pack() {
 		})
 	);
 
-}//AOnlinePacker::Pack
+}//APacker::Pack
