@@ -13,7 +13,7 @@ class TURBOPACKER_API UOnlinePackerWidget : public UEditorUtilityWidget{
 public:
 
 	UPROPERTY(EditDefaultsOnly)
-	class AOnlinePacker* Packer;
+	class APacker* Packer;
 
 	UFUNCTION()
 	double GetDensity();

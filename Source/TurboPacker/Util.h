@@ -109,6 +109,14 @@ namespace Util {
 
 	//--------------------------------------
 
+	[[nodiscard]] inline int32 get_power_of_2(const int32 _target, const int32 _base) noexcept {
+		int32 t = _base;
+		while (t < _target)
+			t *= 2;
+		return t;
+	}//get_power_2
+
+
 	template <class T>
 	inline FVector c_to_HSL(const std::complex<T>& _c, T MAXVALUE = 10.) {
 		const T H = std::clamp(std::abs(std::fmod(std::arg(_c), 2. * PI)), 0., 2. * PI);

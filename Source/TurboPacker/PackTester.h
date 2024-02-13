@@ -45,7 +45,7 @@ namespace Detail {
 		FTransform trans;
 		double weight;
 		int32 n0, n1, h;
-		int32 b_l, b_m, b_h;
+		int32 l, b_l, b_m, b_h;
 		FVector ext;
 		FVector ext_org;
 		EAxisPerm perm;
@@ -110,6 +110,9 @@ class TURBOPACKER_API UPackerConfig : public UObject {
 public:
 
 	UPROPERTY(EditDefaultsOnly, Category = General)
+	TSubclassOf<ARandomBox> Box;
+
+	UPROPERTY(EditDefaultsOnly, Category = General)
 	bool MultiThreading = true;
 
 	UPROPERTY(EditDefaultsOnly, Category = General)
@@ -132,6 +135,9 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, Category = General)
 	CostFunction CostFunction = CostFunction::SIMPLE;
+
+	UPROPERTY(EditDefaultsOnly, Category = General)
+	bool AllowOverlap = true;
 
 	//-------------------------
 
@@ -171,18 +177,25 @@ class TURBOPACKER_API APacker : public AActor {
 
 	using Tree = MQT2::MedianQuadTree<int16, 15>;
 
-	std::unique_ptr<std::mutex> m;
-	std::vector< Detail::Result > toSpawn;
+	std::unique_ptr<std::mutex> m_;
+	std::vector< Detail::Result > toSpawn_;
 
-	std::queue<APackerBox*> q;
+	
 
-	bool isPacking = false;
+	bool isPacking_ = false;
+	double last_time_ = 0.;
+	double vol_ = 0.;
+	int32 bcc_ = 0;
+	int32 mcc_ = 0;
 
-	std::vector<int16> map;
-	std::unique_ptr<Tree> tree;
+	std::vector<int16> map_;
+	std::unique_ptr<Tree> tree_;
+	int32 N_;
 
-	std::unique_ptr<TFuture<bool>> future;
-	std::chrono::high_resolution_clock::time_point start;
+	std::unique_ptr<TFuture<bool>> future_;
+	std::chrono::high_resolution_clock::time_point start_;
+
+	//--------------------------------
 
 	void pack_impl();
 
@@ -198,37 +211,34 @@ class TURBOPACKER_API APacker : public AActor {
 		std::atomic<double>& _minc,
 		std::atomic<int32>& _c,
 		const int32 _n0, const int32 _n1,
+		const FVector& _ext_org,
 		const int32 _h, EAxisPerm _perm,
 		const TSubclassOf<APackerBox>& _b,
 		const std::function<double(const Detail::Result&)>& _cost
 	);
 
-	double last_time = 0.;
-	double vol = 0.;
-	int32 bcc = 0;
-	int32 mcc = 0;
-
 public:
+
+	//--------------------------------
 
 	UFUNCTION(BlueprintCallable)
 	double get_pack_percent();
 
 	UFUNCTION(BlueprintCallable)
-	int32 get_bcc() { return bcc; }
+	int32 get_bcc() { return bcc_; }
 
 	UFUNCTION(BlueprintCallable)
-	int32 get_mcc() { return mcc; }
+	int32 get_mcc() { return mcc_; }
 
 	UFUNCTION(BlueprintCallable)
 	double get_time();
 	
-	//----------------
-
-	UPROPERTY(EditAnywhere)
-	bool AllowOverlap = true;
+	//--------------------------------
 
 	UPROPERTY(EditDefaultsOnly)
 	TSubclassOf<class UPackerConfig> Config;
+
+	//--------------------------------
 
 	APacker();
 
@@ -243,7 +253,6 @@ public:
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = Packer)
 	void Pack();
-
 
 };//APacker
 
@@ -299,6 +308,6 @@ public:
 	ARandomBox();
 
 	virtual FBox get_aabb(const FVector _ext) const override;
-	void set_to_size(const FVector& _new_size, const double _min_size, const double _max_size);
+	void set_to_size(const FVector& _new_size, const double _min_size, const double _max_size, bool _isCube);
 
 };//ARandomBox
