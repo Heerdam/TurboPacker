@@ -338,8 +338,11 @@ double APacker::get_time() {
 }//APacker::get_pack_percent
 
 void APacker::Tick(float _delta) {
-	UPackerConfig* conf = Config->GetDefaultObject<UPackerConfig>();
+	Super::Tick(_delta);
 	UWorld* world = GetWorld();
+	if (!Config || !world) return;
+
+	UPackerConfig* conf = Config->GetDefaultObject<UPackerConfig>();
 
 	std::lock_guard<std::mutex> lock(*m_);
 	for (const auto& res : toSpawn_) {
@@ -446,6 +449,7 @@ void APacker::dispatch_impl(
 	std::mutex& _m,
 	std::atomic<double>& _minc,
 	std::atomic<int32>& _c,
+	const int32 _set_index,
 	const int32 _n0, const int32 _n1, 
 	const FVector& _ext_org,
 	const int32 _h, EAxisPerm _perm,
@@ -455,6 +459,7 @@ void APacker::dispatch_impl(
 	UPackerConfig* conf = Config->GetDefaultObject<UPackerConfig>();
 
 	auto tr = [&,
+		_set_index = _set_index,
 		_b = _b,
 		_perm = _perm,
 		_ext0 = _n0,
@@ -465,6 +470,7 @@ void APacker::dispatch_impl(
 		auto ro = overlap_impl(_ext0, _ext1, _h);
 		if (!ro.empty()) {
 			for (auto& r : ro) {
+				r.set_index = _set_index;
 				r.box = _b;
 				r.ext = FVector(_ext0, _ext1, _h);
 				r.ext_org = _ext_org;
@@ -496,6 +502,7 @@ void APacker::pack_impl() {
 	const int32 ee1 = conf->Bounds.X + 2;
 
 	N_ = Util::get_power_of_2(std::max(ee0, ee1), Tree::BUCKET_SIZE);
+
 	const bool useRandomBox = conf->BoxType == BoxGenerationType::RANDOM;
 
 	map_.resize(N_ * N_);
@@ -518,8 +525,8 @@ void APacker::pack_impl() {
 	tree_ = std::make_unique<Tree>(map_, N_);
 
 	DrawDebugBox(GetWorld(),
-		FVector(ee0 * 0.5, ee0 * 0.5, conf->Height * 0.5),
-		FVector(ee1 * 0.5, ee1 * 0.5, conf->Height * 0.5), FColor::Blue, true);
+		FVector(ee0 * 0.5, ee1 * 0.5, conf->Height * 0.5),
+		FVector(ee0 * 0.5, ee1 * 0.5, conf->Height * 0.5), FColor::Blue, true);
 
 	//--------------------------
 
@@ -540,9 +547,19 @@ void APacker::pack_impl() {
 
 		switch (conf->CostFunction) {
 			case CostFunction::SIMPLE:
-				return std::pow(double(_r.h), 3) + std::pow(_r.n0 + _r.n1, 2);
+				return std::pow(_r.n0 + _r.n1, 2);
 			case CostFunction::SIMPLE_HEIGHT:
-				return std::pow(_r.n0 + _r.n1, 2) - std::pow(_r.b_h, 2);
+				return std::pow(double(_r.h), 3) + std::pow(_r.n0 + _r.n1, 2);
+			case CostFunction::CUSTOM:
+			{
+				const double c1 = std::pow(_r.n0 + _r.n1, 1);
+				const double c2 = std::pow(double(_r.h), 3);
+				const double c3 = std::pow(_r.b_l + _r.b_h, 3);
+				const double c4 = std::pow(_r.l, 3);
+				const double c5 = std::pow(_r.ext.X * _r.ext.Y, 2);
+
+				return c1 + c2 - c3 + c4 - c5;
+			}
 		}
 		return 0.;
 
@@ -575,7 +592,7 @@ void APacker::pack_impl() {
 	const auto box = conf->Box->GetDefaultObject<ARandomBox>();
 
 	std::vector<FVector> next_set(conf->SetSize);
-	std::queue<FVector> next_q;
+	std::deque<FVector> next_q;
 
 	if (conf->BoxType == BoxGenerationType::LIST) {
 		UBoxList* list = conf->List[conf->ListIndex]->GetDefaultObject<UBoxList>();
@@ -587,7 +604,7 @@ void APacker::pack_impl() {
 		if (list->ShuffleBoxes)
 			std::shuffle(tmp.begin(), tmp.end(), g);
 		for (const auto& f : tmp)
-			next_q.push(f);
+			next_q.push_back(f);
 	}
 
 	while (true) {
@@ -613,20 +630,22 @@ void APacker::pack_impl() {
 			{
 				for (int32 i = 0; i < conf->SetSize; ++i) {
 					if (next_q.empty()) break;
-					next_set.push_back(next_q.front());
-					next_q.pop();
+					next_set.push_back(next_q.front() * 0.5);
+					next_q.pop_front();
 				}
 			}
 			break;
 		}
 		
-		for (const FVector& nextSize : next_set) {
+		for (size_t i = 0; i < next_set.size(); ++i) {
+
+			const FVector& nextSize = next_set[i];
 
 			const FBox aabb = box->get_aabb(nextSize);
 			c += 6;
 
 			//Z_XY
-			dispatch_impl(res, mut, minc, c,
+			dispatch_impl(res, mut, minc, c, i,
 				std::rint(aabb.GetExtent().X),
 				std::rint(aabb.GetExtent().Y),
 				nextSize,
@@ -634,7 +653,7 @@ void APacker::pack_impl() {
 				EAxisPerm::Z_XY_0, b, co);
 
 			//Z_YX
-			dispatch_impl(res, mut, minc, c,
+			dispatch_impl(res, mut, minc, c, i,
 				std::rint(aabb.GetExtent().Y),
 				std::rint(aabb.GetExtent().X),
 				nextSize,
@@ -642,7 +661,7 @@ void APacker::pack_impl() {
 				EAxisPerm::Z_XY_1, b, co);
 
 			//Y_XZ
-			dispatch_impl(res, mut, minc, c,
+			dispatch_impl(res, mut, minc, c, i,
 				std::rint(aabb.GetExtent().X),
 				std::rint(aabb.GetExtent().Z),
 				nextSize,
@@ -650,7 +669,7 @@ void APacker::pack_impl() {
 				EAxisPerm::Y_XZ_0, b, co);
 
 			//Y_ZX
-			dispatch_impl(res, mut, minc, c,
+			dispatch_impl(res, mut, minc, c, i,
 				std::rint(aabb.GetExtent().Z),
 				std::rint(aabb.GetExtent().X),
 				nextSize,
@@ -658,7 +677,7 @@ void APacker::pack_impl() {
 				EAxisPerm::Y_XZ_1, b, co);
 
 			//X_YZ
-			dispatch_impl(res, mut, minc, c,
+			dispatch_impl(res, mut, minc, c, i,
 				std::rint(aabb.GetExtent().Y),
 				std::rint(aabb.GetExtent().Z),
 				nextSize,
@@ -666,7 +685,7 @@ void APacker::pack_impl() {
 				EAxisPerm::X_YZ_0, b, co);
 
 			//X_ZY
-			dispatch_impl(res, mut, minc, c,
+			dispatch_impl(res, mut, minc, c, i,
 				std::rint(aabb.GetExtent().Z),
 				std::rint(aabb.GetExtent().Y),
 				nextSize,
@@ -686,6 +705,8 @@ void APacker::pack_impl() {
 			mcc_++;
 			if (useRandomBox && mcc_ > conf->MaxEmptryTries) break;
 			if (useRandomBox && et > conf->EmptryTries) break;
+			if (!useRandomBox && conf->EnforceMisses && mcc_ > conf->MaxEmptryTries) break;
+			if (!useRandomBox && conf->EnforceMisses && et > conf->EmptryTries) break;
 			continue;
 		}
 
@@ -696,6 +717,11 @@ void APacker::pack_impl() {
 		});
 
 		auto& r = res[0];
+
+		for (size_t i = 0; i < next_set.size(); ++i) {
+			if (i == r.set_index) continue;
+			next_q.push_front(next_set[i] * 2.);
+		}
 
 		const FBox tar = FBox(
 			FVector(r.n0 - r.ext.X, r.n1 - r.ext.Y, r.h),

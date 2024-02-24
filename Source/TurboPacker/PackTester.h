@@ -46,6 +46,7 @@ namespace Detail {
 		double weight;
 		int32 n0, n1, h;
 		int32 l, b_l, b_m, b_h;
+		int32 set_index;
 		FVector ext;
 		FVector ext_org;
 		EAxisPerm perm;
@@ -73,7 +74,7 @@ enum class BoxGenerationType : uint8 {
 
 UENUM(BlueprintType)
 enum class CostFunction : uint8 {
-	SIMPLE, SIMPLE_HEIGHT
+	SIMPLE, SIMPLE_HEIGHT, CUSTOM
 };//CostFunction
 
 //-----------------------
@@ -169,6 +170,9 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = BoxList)
 	TArray<TSubclassOf<UBoxList>> List;
 
+	UPROPERTY(EditDefaultsOnly, Category = BoxList)
+	bool EnforceMisses = false;
+
 };//UPackerConfig
 
 UCLASS(Blueprintable, BlueprintType)
@@ -210,6 +214,7 @@ class TURBOPACKER_API APacker : public AActor {
 		std::mutex& _m,
 		std::atomic<double>& _minc,
 		std::atomic<int32>& _c,
+		const int32 _set_index,
 		const int32 _n0, const int32 _n1,
 		const FVector& _ext_org,
 		const int32 _h, EAxisPerm _perm,
