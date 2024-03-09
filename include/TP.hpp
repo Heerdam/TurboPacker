@@ -55,18 +55,28 @@ namespace TP {
 
             std::vector<std::thread> t_;
             std::queue<std::function<void()>> tasks_;
-            std::condition_variable cv_;
+            std::condition_variable cv_, cv_finished_;
             std::mutex m_;
-            bool run_;
+            bool run_ = false;
+            int active_tasks_ = 0;
 
             void run_impl() {
-                while(run_){
+                while(true){
                     std::unique_lock<std::mutex> lock(m_);
+                    cv_.wait(lock, [&]{ return !run_ || !tasks_.empty(); });
+                    if(!run_) break;
+                    if(tasks_.empty()) continue;
                     const auto tt = std::move(tasks_.front());
                     tasks_.pop();
+                    ++active_tasks_;
                     lock.unlock();
                     tt();
-                    cv_.wait(lock, [&]{ return !run_ || !tasks_.empty(); });
+                    lock.lock();     
+                    --active_tasks_;
+                    if (tasks_.empty() && active_tasks_ == 0){
+                        lock.unlock();
+                        cv_finished_.notify_all();
+                    }
                 }
             }
 
@@ -92,10 +102,16 @@ namespace TP {
 
             template<class FUNC>
             void dispatch(FUNC _task){
-                std::unique_lock<std::mutex> lock(m_);
-                tasks_.push(std::function<void()>(std::move(_task)));
-                lock.unlock();
+                {
+                    std::lock_guard<std::mutex> lock(m_);
+                    tasks_.push(std::function<void()>(std::move(_task)));
+                }
                 cv_.notify_one();
+            }
+
+            void wait() {
+                std::unique_lock<std::mutex> lock(m_);
+                cv_finished_.wait(lock, [&] { return tasks_.empty() && active_tasks_ == 0; });
             }
 
         };//TaskGraph
@@ -131,19 +147,23 @@ namespace TP {
             TaskGraph tg_;
 
             std::vector<glm::mat<4, 4, T>> data_;
-            std::mutex m_;
+            std::mutex m_data;
 
             int32_t N_;
+            T tot_vol_;
 
-            bool isPacking_ = false;
-            double last_time_ = 0.;
-            double vol_ = 0.;
-            int32_t bcc_ = 0;
-            int32_t mcc_ = 0;
+            std::chrono::high_resolution_clock::time_point time_start_;
+            std::atomic<bool> isDone_ = true;
+            std::atomic<double> vol_ = 0.;
+            std::atomic<int32_t> bcc_ = 0;
+            std::atomic<int32_t> mcc_ = 0;
 
             SolverContext(const int32_t _num_threads) : tg_(TaskGraph(_num_threads)) {}
             SolverContext(const SolverContext&) = delete;
             SolverContext(SolverContext&&) = delete;
+            ~SolverContext() {
+                mt_.join();
+            }
 
         };//SolverContext
 
@@ -151,13 +171,10 @@ namespace TP {
 
         template<class T, typename H_T, int32_t BS, typename HA>
         class Promise {
-            bool done_;
-            std::unique_ptr<std::mutex> m_;
-            std::unique_ptr<std::condition_variable> cv_;
-            std::unique_ptr<SolverContext<T, H_T, BS, HA>> context_;
-            
+
+            std::unique_ptr<SolverContext<T, H_T, BS, HA>> context_;      
             //-------------
-            Promise();
+            Promise() = default;
             Promise(Promise&&) = default;
             Promise(const Promise&) = delete;
             Promise& operator=(Promise&&) = default;
@@ -165,13 +182,19 @@ namespace TP {
             //-------------
             template<typename T_, template<typename> class CF_, typename H_T_ , int32_t BS_, typename HA_>
             friend Promise<T_, H_T_, BS_, HA_> TP::solve(const ::TP::Config<T_, CF_, H_T_, BS_, HA_>& _conf);
+        
         public:
-
             //locks the thread until isDone() == true
             void wait();
 
+            //stops the packing and shutdowns all threads safely
+            void stop();
+
             //NOT thread safe! only call when isDone() returns true!
             [[nodiscard]] const std::vector<glm::mat<4, 4, T>>& data() const;
+
+            //NOT thread safe! only call when isDone() returns true!
+            [[nodiscard]] std::vector<glm::mat<4, 4, T>>& data();
             
             //thread safe!
             [[nodiscard]] bool isDone() const;
@@ -300,7 +323,6 @@ namespace TP {
             std::vector<Result<T>>& _res,
             std::mutex& _m,
             std::atomic<double>& _minc,
-            std::atomic<int32_t>& _c,
             const int32_t _set_index,
             const int32_t _n0, const int32_t _n1,
             const glm::vec<3, T>& _ext_org,
@@ -314,44 +336,62 @@ namespace TP {
 //------------------------------
 
 template<class T, typename H_T, int32_t BS, typename HA>
-TP::Detail::Promise<T, H_T, BS, HA>::Promise() {
-    
-}//TP::Detail::Promise::Promise
+void TP::Detail::Promise<T, H_T, BS, HA>::wait() {
+    using namespace std::chrono_literals;
+    while(!isDone())
+        std::this_thread::sleep_for(0.25s);
+}//TP::Detail::Promise::wait
+
+template<class T, typename H_T, int32_t BS, typename HA>
+void TP::Detail::Promise<T, H_T, BS, HA>::stop() {
+    assert(context_);
+    context_->isPacking_ = false;
+}//TP::Detail::Promise::wait
 
 template<class T, typename H_T, int32_t BS, typename HA>
 const std::vector<glm::mat<4, 4, T>>& TP::Detail::Promise<T, H_T, BS, HA>::data() const {
     assert(context_);
+    std::lock_guard<std::mutex> lock(context_->m_data);
+    return context_->data_;
+}//TP::Detail::Promise::data
+
+template<class T, typename H_T, int32_t BS, typename HA>
+std::vector<glm::mat<4, 4, T>>& TP::Detail::Promise<T, H_T, BS, HA>::data() {
+    assert(context_);
+    std::lock_guard<std::mutex> lock(context_->m_data);
     return context_->data_;
 }//TP::Detail::Promise::data
 
 template<class T, typename H_T, int32_t BS, typename HA>
 bool TP::Detail::Promise<T, H_T, BS, HA>::isDone() const {
     assert(context_);
-    return true;
+    return context_->isDone_.load();
 }//TP::Detail::Promise::isDone
 
 template<class T, typename H_T, int32_t BS, typename HA>
 T TP::Detail::Promise<T, H_T, BS, HA>::getPackDensity() const {
     assert(context_);
-    return 0.;
+    return context_->vol_.load() / context_->tot_vol_;
 }//TP::Detail::Promise::getPackDensity
 
 template<class T, typename H_T, int32_t BS, typename HA>
 int32_t TP::Detail::Promise<T, H_T, BS, HA>::getBoxCount() const {
     assert(context_);
-    return context_->bcc_;
+    return context_->bcc_.load();
 }//TP::Detail::Promise::getBoxCount
 
 template<class T, typename H_T, int32_t BS, typename HA>
 int32_t TP::Detail::Promise<T, H_T, BS, HA>::getMissedCount() const {
     assert(context_);
-    return context_->mcc_;
+    return context_->mcc_.load();
 }//TP::Detail::Promise::getMissedCount
 
 template<class T, typename H_T, int32_t BS, typename HA>
 double TP::Detail::Promise<T, H_T, BS, HA>::getTime() const {
     assert(context_);
-    return 0.;
+    const auto now = std::chrono::high_resolution_clock::now();
+    const std::chrono::duration<double> ee = now - context_->time_start_;
+    return ee.count();
 }//TP::Detail::Promise::getTime
 
 //------------------------------
@@ -360,12 +400,15 @@ template<typename T, template<typename> class CF, typename H_T, int32_t BS, type
 TP::Detail::Promise<T, H_T, BS, HA> TP::solve(const TP::Config<T, CF, H_T, BS, HA>& _conf) {
 
     using namespace TP;
+    static_assert(std::is_floating_point_v<T>, "T needs to be floating point type!");
     static_assert(CostFunction::isValidCF<T, CF>, "Costfunction has not a valid signature!");
-
+    
     Detail::Promise<T, H_T, BS, HA> out;
     out.context_ = std::make_unique<Detail::SolverContext<T, H_T, BS, HA>>(_conf.NumThreads);
     auto c = out.context_.get();
 
+    c->isDone_ = false;
+    c->tot_vol_ = _conf.Bounds.x * _conf.Bounds.y * _conf.Height;
     c->mt_ = std::thread(Detail::run_impl<T, CF, H_T, BS, HA>, std::ref(_conf), c);
 
     return out;    
@@ -456,12 +499,11 @@ void TP::Detail::run_impl(
     while (true) {
 
         if (_conf.BoxType == BoxGenerationType::LIST && next_q.empty()) break;
+        if (_cont->isDone_) break;
 
         std::mutex mut;
         std::vector<Detail::Result<T>> res;
         std::atomic<double> minc = std::numeric_limits<double>::infinity();
-
-        std::atomic<int32_t> c = 0;
 
         next_set.clear();
         
@@ -488,10 +530,10 @@ void TP::Detail::run_impl(
             const glm::vec<3, T>& nextSize = next_set[i];
 
             const FBox aabb = FBox{-nextSize * T(0.5), nextSize * T(0.5)};
-            c += 6;
+            
 
             //Z_XY
-            dispatch_impl(_conf, _cont, res, mut, minc, c, i,
+            dispatch_impl(_conf, _cont, res, mut, minc, i,
                 int32_t(std::round(aabb.GetExtent().x)),
                 int32_t(std::round(aabb.GetExtent().y)),
                 nextSize,
@@ -499,7 +541,7 @@ void TP::Detail::run_impl(
                 EAxisPerm::Z_XY_0);
 
             //Z_YX
-            dispatch_impl(_conf, _cont, res, mut, minc, c, i,
+            dispatch_impl(_conf, _cont, res, mut, minc, i,
                 int32_t(std::round(aabb.GetExtent().y)),
                 int32_t(std::round(aabb.GetExtent().x)),
                 nextSize,
@@ -507,7 +549,7 @@ void TP::Detail::run_impl(
                 EAxisPerm::Z_XY_1);
 
             //Y_XZ
-            dispatch_impl(_conf, _cont, res, mut, minc, c, i,
+            dispatch_impl(_conf, _cont, res, mut, minc, i,
                 int32_t(std::round(aabb.GetExtent().x)),
                 int32_t(std::round(aabb.GetExtent().z)),
                 nextSize,
@@ -515,7 +557,7 @@ void TP::Detail::run_impl(
                 EAxisPerm::Y_XZ_0);
 
             //Y_ZX
-            dispatch_impl(_conf, _cont, res, mut, minc, c, i,
+            dispatch_impl(_conf, _cont, res, mut, minc, i,
                 int32_t(std::round(aabb.GetExtent().z)),
                 int32_t(std::round(aabb.GetExtent().x)),
                 nextSize,
@@ -523,7 +565,7 @@ void TP::Detail::run_impl(
                 EAxisPerm::Y_XZ_1);
 
             //X_YZ
-            dispatch_impl(_conf, _cont, res, mut, minc, c, i,
+            dispatch_impl(_conf, _cont, res, mut, minc, i,
                 int32_t(std::round(aabb.GetExtent().y)),
                 int32_t(std::round(aabb.GetExtent().z)),
                 nextSize,
@@ -531,20 +573,20 @@ void TP::Detail::run_impl(
                 EAxisPerm::X_YZ_0);
 
             //X_ZY
-            dispatch_impl(_conf, _cont, res, mut, minc, c, i,
+            dispatch_impl(_conf, _cont, res, mut, minc, i,
                 int32_t(std::round(aabb.GetExtent().z)),
                 int32_t(std::round(aabb.GetExtent().y)),
                 nextSize,
                 int32_t(std::round(aabb.GetExtent().x)),
                 EAxisPerm::X_YZ_1);
 
-            while (c != 0) {}
+            _cont->tg_.wait();
 
-            if (!_cont->isPacking_) break;
+            if (_cont->isDone_) break;
 
         }
 
-        if (!_cont->isPacking_) break;
+        if (_cont->isDone_) break;
 
         if (res.empty()) {
             et++;
@@ -580,8 +622,11 @@ void TP::Detail::run_impl(
         );
 
         {
-            std::lock_guard<std::mutex> lock(_cont->m_);
+            std::lock_guard<std::mutex> lock(_cont->m_data);
             _cont->data_.push_back(tr);
+            _cont->bcc_ += 1;
+            _cont->vol_ += 4. * r.ext.x * r.ext.y * r.ext.z;
+            //std::cout << r.ext.x << ", " << r.ext.y << ", " << r.ext.z << std::endl;
         }
 
         std::fill(mm.begin(), mm.end(), false);
@@ -602,6 +647,8 @@ void TP::Detail::run_impl(
         _cont->tree_->recompute(mm);
 
     }
+
+    _cont->isDone_ = true;
     
 }//TP::Detail::run_impl
 
@@ -614,13 +661,12 @@ void TP::Detail::dispatch_impl(
     std::vector<TP::Detail::Result<T>>& _res,
     std::mutex& _m,
     std::atomic<double>& _minc,
-    std::atomic<int32_t>& _c,
     const int32_t _set_index,
     const int32_t _ext0, const int32_t _ext1,
     const glm::vec<3, T>& _ext_org,
     const int32_t _h, TP::Detail::EAxisPerm _perm
 ) {
-        auto tr = [=, &_conf, &_res, &_m, &_minc, &_c] () -> void {
+        auto tr = [=, &_conf, &_res, &_m, &_minc] () -> void {
         auto ro = overlap_impl<T, CF, H_T, BS, HA>(_conf, _cont, _ext0, _ext1, _h);
         if (!ro.empty()) {
             for (auto& r : ro) {
@@ -637,7 +683,6 @@ void TP::Detail::dispatch_impl(
                 }
             }
         }
-        _c--;
     };
 
     if (_conf.MultiThreading) _cont->tg_.dispatch(std::move(tr));
