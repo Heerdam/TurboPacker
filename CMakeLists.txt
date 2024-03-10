@@ -41,10 +41,22 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glm)
 
+# --------------- RAYLIB ---------------
+message(STATUS "Fetching Raylib...")
+FetchContent_Declare(
+	RAYLIB
+	GIT_REPOSITORY  https://github.com/raysan5/raylib.git
+	GIT_TAG         5.0
+)
+option(BUILD_EXAMPLES "Build example of how to use this library." OFF)
+option(BUILD_SHARED_LIBS "Build shared libs." OFF)
+set(GRAPHICS "GRAPHICS_API_OPENGL_43" FORCE)
+FetchContent_MakeAvailable(RAYLIB)
+
 # -----------------------------------------
 
 target_include_directories(TP INTERFACE include )
 target_include_directories(TPtest PUBLIC include )
 
 target_link_libraries(TP INTERFACE MQT2 glm::glm )
-target_link_libraries(TPtest MQT2 glm::glm )
+target_link_libraries(TPtest MQT2 glm::glm raylib )

@@ -531,7 +531,6 @@ void TP::Detail::run_impl(
 
             const FBox aabb = FBox{-nextSize * T(0.5), nextSize * T(0.5)};
             
-
             //Z_XY
             dispatch_impl(_conf, _cont, res, mut, minc, i,
                 int32_t(std::round(aabb.GetExtent().x)),
