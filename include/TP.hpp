@@ -438,7 +438,7 @@ void TP::Detail::run_impl(
     const bool useRandomBox = _conf.BoxType == BoxGenerationType::RANDOM;
 
     _cont->map_.resize(_cont->N_ * _cont->N_);
-    std::fill(_cont->map_.begin(), _cont->map_.end(), 0.);
+    std::fill(_cont->map_.begin(), _cont->map_.end(), 0);
 
     for (int32_t n0 = 0; n0 < ee0; ++n0) {
         const int32_t i1 = n0 * _cont->N_;

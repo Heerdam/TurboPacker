@@ -32,7 +32,7 @@ int main() {
 
     using namespace TP;
 
-    InitWindow(1000, 1000, "Test");
+    InitWindow(1000, 1000, "TurboPacker");
     SetTargetFPS(60); 
 
     Config<float, CostFunction::CF_Basic> conf;
@@ -48,31 +48,33 @@ int main() {
         std::cout << pr.getBoxCount() << " [" << pr.getPackDensity() << "]"  << "\r";
     }
 
-    std::cout << "done" << std::endl;
 
     const auto& b = pr.data();
+    
+    std::cout << std::endl << "done [" << b.size() << "]" << std::endl;
+
 
     //-------------------------------------
 
     Camera camera;
-    camera.position = Vector3{ 100., 100., 100. };
+    camera.position = Vector3{ 5., 5., 5. };
     camera.target = Vector3{ 0.0f, 0.0f, 0.0f };  
-    camera.up = Vector3{ 0.0f, 0.0f, 1.0f };
+    camera.up = Vector3{ 0.0f, 1.0f, 0.0f };
     camera.fovy = 45.0f;                       
     camera.projection = CAMERA_PERSPECTIVE;  
 
 
     while (!WindowShouldClose()) {
 
-        BeginMode3D(camera);
-
+        BeginDrawing();
         ClearBackground(RAYWHITE);
 
-        DrawGrid(10, 1.0f);
+        BeginMode3D(camera);
+        DrawGrid(25, 1.0f);
 
         for (const auto& tr : b) {
             const Matrix& mat = *reinterpret_cast<const Matrix*>(glm::value_ptr(tr));
-            DrawCubeV(Vector3{ mat.m12, mat.m13, mat.m14 }, Vector3{ 
+            DrawCubeWiresV(Vector3{ mat.m12, mat.m13, mat.m14 }, Vector3{ 
                 glm::length(glm::vec3(tr[0])), 
                 glm::length(glm::vec3(tr[1])),  
                 glm::length(glm::vec3(tr[2])), 
@@ -80,6 +82,7 @@ int main() {
         }
 
         EndMode3D();
+        EndDrawing();
 
     }
 
