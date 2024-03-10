@@ -10,12 +10,14 @@
 #include <type_traits>
 #include <functional>
 #include <random>
+#include <syncstream>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
 #include <glm/ext/scalar_constants.hpp>
 #include <glm/gtx/transform.hpp>
+#include <glm/gtx/string_cast.hpp>
 
 namespace TP {
 
@@ -122,17 +124,14 @@ namespace TP {
             Z_XY_0, Z_XY_1, Z_XY_2, Z_XY_3,
             Y_XZ_0, Y_XZ_1, Y_XZ_2, Y_XZ_3,
             X_YZ_0, X_YZ_1, X_YZ_2, X_YZ_3,
-
-            Z_n_XY_0, Z_n_XY_1, Z_n_XY_2, Z_n_XY_3,
-            Y_n_XZ_0, Y_n_XZ_1, Y_n_XZ_2, Y_n_XZ_3,
-            X_n_YZ_0, X_n_YZ_1, X_n_YZ_2, X_n_YZ_3
         };//EAxisPerm
 
         template<class T>
         [[nodiscard]] glm::mat<4, 4, T> make_transform(
             const EAxisPerm _perm,
             const FBox<T>& _target,
-            const glm::vec<3, T>& _pivot_offset
+            const glm::vec<3, T>& _pivot_offset,
+            const glm::vec<3, T>& _ext
         );//make_transform
 
         //-------------------------
@@ -529,7 +528,7 @@ void TP::Detail::run_impl(
 
             const glm::vec<3, T>& nextSize = next_set[i];
 
-            const FBox aabb = FBox{-nextSize * T(0.5), nextSize * T(0.5)};
+            const FBox aabb = FBox{-nextSize, nextSize};
             
             //Z_XY
             dispatch_impl(_conf, _cont, res, mut, minc, i,
@@ -617,8 +616,13 @@ void TP::Detail::run_impl(
         const auto tr = make_transform<T>(
             r.perm,
             tar,
-            glm::vec<3, T>(0.)
-        );
+            glm::vec<3, T>(0.),
+            r.ext * T(2.)
+        ); 
+
+        //std::osyncstream(std::cout) << "---------" << std::endl;
+        //std::osyncstream(std::cout) << glm::to_string(tr) << std::endl;
+        //std::osyncstream(std::cout) << "[" << tar.min_.x << ", " << tar.min_.y << ", " << r.h << "][" << tar.max_.x << ", " << tar.max_.y << "]" << std::endl;
 
         {
             std::lock_guard<std::mutex> lock(_cont->m_data);
@@ -748,7 +752,8 @@ template<class T>
 glm::mat<4, 4, T> TP::Detail::make_transform (
     const EAxisPerm _perm,
     const FBox<T>& _target,
-    const glm::vec<3, T>& _pivot_offset
+    const glm::vec<3, T>& _pivot_offset,
+    const glm::vec<3, T>& _ext
 ) {
 
     const glm::vec<3, T>& ctr = _target.GetCenter();
@@ -757,223 +762,87 @@ glm::mat<4, 4, T> TP::Detail::make_transform (
         case EAxisPerm::Z_XY_0:
         {
             glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 0, 1));
             tr = glm::translate(tr, ctr - _pivot_offset);
+            tr = glm::scale(tr, _ext);
             return tr;
         }
         case EAxisPerm::Z_XY_1:
         {
             glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(0, 0, 1));
             tr = glm::translate(tr, ctr + glm::vec<3, T>{ -_pivot_offset.y, _pivot_offset.x, -_pivot_offset.z });
+            tr = glm::scale(tr, _ext);
             return tr;
         }
         case EAxisPerm::Z_XY_2:
         {
             glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(2 * 90.), glm::vec<3, T>(0, 0, 1));
             tr = glm::translate(tr, ctr + glm::vec<3, T>{ _pivot_offset.x, _pivot_offset.y, -_pivot_offset.z });
+            tr = glm::scale(tr, _ext);
             return tr;
         }
         case EAxisPerm::Z_XY_3:
         {
             glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(3 * 90.), glm::vec<3, T>(0, 0, 1));
             tr = glm::translate(tr, ctr + glm::vec<3, T>{ _pivot_offset.y, _pivot_offset.x, -_pivot_offset.z });
+            tr = glm::scale(tr, _ext);
             return tr;
         }
         //---------------------
         case EAxisPerm::Y_XZ_0:
         {
             glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 0, 1));
             tr = glm::translate(tr, ctr + glm::vec<3, T>{ -_pivot_offset.x, -_pivot_offset.z, _pivot_offset.y });
+            tr = glm::scale(tr, _ext);
             return tr;
         }
         case EAxisPerm::Y_XZ_1:
         {
             glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(0, 0, 1));
             tr = glm::translate(tr, ctr + glm::vec<3, T>{ _pivot_offset.z, -_pivot_offset.x, _pivot_offset.y });
+            tr = glm::scale(tr, _ext);
             return tr;
         }
         case EAxisPerm::Y_XZ_2:
         {
             glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(2 * 90.), glm::vec<3, T>(0, 0, 1));
             tr = glm::translate(tr, ctr + glm::vec<3, T>{ _pivot_offset.x, _pivot_offset.z, _pivot_offset.y });
+            tr = glm::scale(tr, _ext);
             return tr;
         }
         case EAxisPerm::Y_XZ_3:
         {
             glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(3 * 90.), glm::vec<3, T>(0, 0, 1));
             tr = glm::translate(tr, ctr + glm::vec<3, T>{ -_pivot_offset.z, _pivot_offset.x, _pivot_offset.y });
+            tr = glm::scale(tr, _ext);
             return tr;
         }
         //---------------------
         case EAxisPerm::X_YZ_0:
         {
             glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 0, 1));
             tr = glm::translate(tr, ctr + glm::vec<3, T>{ -_pivot_offset.y, -_pivot_offset.z, -_pivot_offset.x });
+            tr = glm::scale(tr, _ext);
             return tr;
         }
         case EAxisPerm::X_YZ_1:
         {
             glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(2 * 90.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 0, 1));
             tr = glm::translate(tr, ctr + glm::vec<3, T>{ -_pivot_offset.z, _pivot_offset.y, -_pivot_offset.x });
+            tr = glm::scale(tr, _ext);
             return tr;
         }
         case EAxisPerm::X_YZ_2:
         {
             glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(3 * 90.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 0, 1));
             tr = glm::translate(tr, ctr + glm::vec<3, T>{ _pivot_offset.y, _pivot_offset.z, -_pivot_offset.x });
+            tr = glm::scale(tr, _ext);
             return tr;
         }
         case EAxisPerm::X_YZ_3:
         {
             glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 0, 1));
             tr = glm::translate(tr, ctr + glm::vec<3, T>{ _pivot_offset.z, -_pivot_offset.y, -_pivot_offset.x });
-            return tr;
-        }
-        //-------------------------
-        //-------------------------
-        case EAxisPerm::Z_n_XY_0:
-        {
-            glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(180.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 0, 1));
-            tr = glm::translate(tr, ctr + glm::vec<3, T>{ -_pivot_offset.x, _pivot_offset.y, -_pivot_offset.z });
-            return tr;
-        }
-        case EAxisPerm::Z_n_XY_1:
-        {
-            glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(180.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(0, 0, 1));
-            tr = glm::translate(tr, ctr + glm::vec<3, T>{ -_pivot_offset.y, _pivot_offset.x, _pivot_offset.z });
-            return tr;
-        }
-        case EAxisPerm::Z_n_XY_2:
-        {
-            glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(180.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(2 * 90.), glm::vec<3, T>(0, 0, 1));
-            tr = glm::translate(tr, ctr + glm::vec<3, T>{ -_pivot_offset.x, _pivot_offset.y, _pivot_offset.z });
-            return tr;
-        }
-        case EAxisPerm::Z_n_XY_3:
-        {
-            glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(180.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(3 * 90.), glm::vec<3, T>(0, 0, 1));
-            tr = glm::translate(tr, ctr + glm::vec<3, T>{ -_pivot_offset.y, -_pivot_offset.x, _pivot_offset.z });
-            return tr;
-        }
-        //-------------------------
-        case EAxisPerm::Y_n_XZ_0:
-        {
-            glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(180.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 0, 1));
-            tr = glm::translate(tr, ctr + glm::vec<3, T>{ _pivot_offset.x, -_pivot_offset.z, _pivot_offset.y });
-            return tr;
-        }
-        case EAxisPerm::Y_n_XZ_1:
-        {
-            glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(180.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(0, 0, 1));
-            tr = glm::translate(tr, ctr + glm::vec<3, T>{ _pivot_offset.z, _pivot_offset.x, _pivot_offset.y });
-            return tr;
-        }
-        case EAxisPerm::Y_n_XZ_2:
-        {
-            glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(180.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(2 * 90.), glm::vec<3, T>(0, 0, 1));
-            tr = glm::translate(tr, ctr + glm::vec<3, T>{ -_pivot_offset.x, _pivot_offset.z, _pivot_offset.y });
-            return tr;
-        }
-        case EAxisPerm::Y_n_XZ_3:
-        {
-            glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(180.), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(3 * 90.), glm::vec<3, T>(0, 0, 1));
-            tr = glm::translate(tr, ctr + glm::vec<3, T>{ -_pivot_offset.z, -_pivot_offset.x, _pivot_offset.y });
-            return tr;
-        }
-        //-------------------------
-        case EAxisPerm::X_n_YZ_0:
-        {
-            glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(180. + 90), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0.), glm::vec<3, T>(0, 0, 1));
-            tr = glm::translate(tr, ctr + glm::vec<3, T>{ -_pivot_offset.y, -_pivot_offset.z, _pivot_offset.x });
-            return tr;
-        }
-        case EAxisPerm::X_n_YZ_1:
-        {
-            glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(90.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(-90), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(-90), glm::vec<3, T>(0, 0, 1));
-            tr = glm::translate(tr, ctr + glm::vec<3, T>{ -_pivot_offset.z, _pivot_offset.y, _pivot_offset.x });
-            return tr;
-        }
-        case EAxisPerm::X_n_YZ_2:
-        {
-            glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(3 * 90.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(180 + 90), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(0), glm::vec<3, T>(0, 0, 1));
-            tr = glm::translate(tr, ctr + glm::vec<3, T>{ _pivot_offset.y, _pivot_offset.z, _pivot_offset.x });
-            return tr;
-        }
-        case EAxisPerm::X_n_YZ_3:
-        {
-            glm::mat<4, 4, T> tr = glm::mat4(1.);
-            tr = glm::rotate(tr, glm::radians<T>(-90.), glm::vec<3, T>(1, 0, 0));
-            tr = glm::rotate(tr, glm::radians<T>(270), glm::vec<3, T>(0, 1, 0));
-            tr = glm::rotate(tr, glm::radians<T>(270), glm::vec<3, T>(0, 0, 1));
-            tr = glm::translate(tr, ctr + glm::vec<3, T>{ _pivot_offset.z, -_pivot_offset.y, _pivot_offset.x });
+            tr = glm::scale(tr, _ext);
             return tr;
         }
     }

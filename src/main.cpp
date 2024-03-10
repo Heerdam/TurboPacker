@@ -2,6 +2,8 @@
 #include <TP.hpp>
 
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/string_cast.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
 
 #include <raylib.h>
 #include <raymath.h>
@@ -36,20 +38,22 @@ int main() {
     SetTargetFPS(60); 
 
     Config<float, CostFunction::CF_Basic> conf;
-    conf.Bounds = {40., 50. };
-    conf.Height = 60.;
-    conf.EmptryTries = 1;
-    conf.MinBoxVolume = 20 * 20 * 20;
+    conf.Bounds = {80., 100. };
+    conf.Height = 30.;
+    conf.EmptryTries = 100;
+    conf.MinBoxVolume = 15 * 15 * 15;
     conf.MaxBoxVolume = 30 * 30 * 30;
 
     const auto pr = solve(conf);
 
     while(!pr.isDone()){
-        std::cout << pr.getBoxCount() << " [" << pr.getPackDensity() << "]"  << "\r";
+        //std::osyncstream(std::cout) << pr.getBoxCount() << " [" << pr.getPackDensity() << "]"  << "\r";
     }
 
 
     const auto& b = pr.data();
+    //for (const auto& tr : b)
+        //std::cout << glm::to_string(tr) << std::endl;
     
     std::cout << std::endl << "done [" << b.size() << "]" << std::endl;
 
@@ -57,9 +61,9 @@ int main() {
     //-------------------------------------
 
     Camera camera;
-    camera.position = Vector3{ 5., 5., 5. };
+    camera.position = Vector3{ 150., 150., 150. };
     camera.target = Vector3{ 0.0f, 0.0f, 0.0f };  
-    camera.up = Vector3{ 0.0f, 1.0f, 0.0f };
+    camera.up = Vector3{ 0.0f, 0.0f, 1.0f };
     camera.fovy = 45.0f;                       
     camera.projection = CAMERA_PERSPECTIVE;  
 
@@ -70,14 +74,17 @@ int main() {
         ClearBackground(RAYWHITE);
 
         BeginMode3D(camera);
-        DrawGrid(25, 1.0f);
+        //DrawGrid(25, 1.0f);
+
+        const auto ext = conf.Bounds * 0.5f;
+        DrawCubeWiresV(Vector3{ext.y, ext.x, conf.Height * 0.5f}, Vector3{conf.Bounds.y, conf.Bounds.x, (float)conf.Height}, BLUE);
 
         for (const auto& tr : b) {
-            const Matrix& mat = *reinterpret_cast<const Matrix*>(glm::value_ptr(tr));
-            DrawCubeWiresV(Vector3{ mat.m12, mat.m13, mat.m14 }, Vector3{ 
+            const auto trans = glm::vec<3, float>(tr[3]);
+            DrawCubeWiresV(Vector3{ trans.x, trans.y, trans.z }, Vector3{ 
                 glm::length(glm::vec3(tr[0])), 
-                glm::length(glm::vec3(tr[1])),  
-                glm::length(glm::vec3(tr[2])), 
+                glm::length(glm::vec3(tr[1])), 
+                glm::length(glm::vec3(tr[2])) 
                 }, RED);
         }
 
