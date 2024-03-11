@@ -20,43 +20,48 @@ include(FetchContent)
 
 add_library( TP INTERFACE )
 
-add_executable(TPtest
-   src/main.cpp
-)
+if (BUILD_TEST)
 
-# ------------------ MQT ------------------
-message(STATUS "Fetching mqt...")
-FetchContent_Declare(
-	MQT2
-	GIT_REPOSITORY https://github.com/Heerdam/MedianQuadtree.git
-)
-FetchContent_MakeAvailable(MQT2)
+	add_executable( TPtest src/main.cpp )
+
+	# ------------------ MQT ------------------
+	message(STATUS "Fetching mqt...")
+	FetchContent_Declare(
+		MQT2
+		GIT_REPOSITORY https://github.com/Heerdam/MedianQuadtree.git
+	)
+	FetchContent_MakeAvailable(MQT2)
+
+	# --------------- RAYLIB ---------------
+	message(STATUS "Fetching Raylib...")
+	FetchContent_Declare(
+		RAYLIB
+		GIT_REPOSITORY  https://github.com/raysan5/raylib.git
+		GIT_TAG         5.0
+	)
+	option(BUILD_EXAMPLES "Build example of how to use this library." OFF)
+	option(BUILD_SHARED_LIBS "Build shared libs." OFF)
+	set(GRAPHICS "GRAPHICS_API_OPENGL_43" FORCE)
+	FetchContent_MakeAvailable(RAYLIB)
+
+endif()
 
 # ------------------ GLM ------------------
 message(STATUS "Fetching glm...")
 FetchContent_Declare(
-    glm
-    GIT_REPOSITORY      https://github.com/g-truc/glm.git
-    GIT_TAG             1.0.0
+	glm
+	GIT_REPOSITORY      https://github.com/g-truc/glm.git
+	GIT_TAG             1.0.0
 )
 FetchContent_MakeAvailable(glm)
 
-# --------------- RAYLIB ---------------
-message(STATUS "Fetching Raylib...")
-FetchContent_Declare(
-	RAYLIB
-	GIT_REPOSITORY  https://github.com/raysan5/raylib.git
-	GIT_TAG         5.0
-)
-option(BUILD_EXAMPLES "Build example of how to use this library." OFF)
-option(BUILD_SHARED_LIBS "Build shared libs." OFF)
-set(GRAPHICS "GRAPHICS_API_OPENGL_43" FORCE)
-FetchContent_MakeAvailable(RAYLIB)
+if (BUILD_TEST)
+	target_include_directories(TPtest PUBLIC include )
+	target_link_libraries(TPtest MQT2 glm::glm raylib )
+endif()
 
 # -----------------------------------------
 
 target_include_directories(TP INTERFACE include )
-target_include_directories(TPtest PUBLIC include )
-
 target_link_libraries(TP INTERFACE MQT2 glm::glm )
-target_link_libraries(TPtest MQT2 glm::glm raylib )
+
