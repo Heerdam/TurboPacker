@@ -20,17 +20,11 @@ include(FetchContent)
 
 add_library( TP INTERFACE )
 
+#set(BUILD_TEST TRUE)
+
 if (BUILD_TEST)
 
 	add_executable( TPtest src/main.cpp )
-
-	# ------------------ MQT ------------------
-	message(STATUS "Fetching mqt...")
-	FetchContent_Declare(
-		MQT2
-		GIT_REPOSITORY https://github.com/Heerdam/MedianQuadtree.git
-	)
-	FetchContent_MakeAvailable(MQT2)
 
 	# --------------- RAYLIB ---------------
 	message(STATUS "Fetching Raylib...")
@@ -45,6 +39,14 @@ if (BUILD_TEST)
 	FetchContent_MakeAvailable(RAYLIB)
 
 endif()
+
+# ------------------ MQT ------------------
+message(STATUS "Fetching mqt...")
+FetchContent_Declare(
+	MQT2
+	GIT_REPOSITORY https://github.com/Heerdam/MedianQuadtree.git
+)
+FetchContent_MakeAvailable(MQT2)
 
 # ------------------ GLM ------------------
 message(STATUS "Fetching glm...")
