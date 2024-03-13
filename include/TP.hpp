@@ -214,17 +214,9 @@ namespace TP {
 
         //-------------------------
 
-        enum class PackMethod : uint8_t {
-            ONLINE
-        };//PackType
-
         enum class BoxGenerationType : uint8_t {
             RANDOM, LIST
         };//PackType
-
-        enum class CostFunction : uint8_t {
-            SIMPLE, SIMPLE_HEIGHT, CUSTOM
-        };//CostFunction
 
         //-------------------------
 
@@ -275,27 +267,59 @@ namespace TP {
         using HEIGHTMAP_ALLOCATOR_ = HEIGHTMAP_ALLOCATOR;
         using COSTFUNCTION_ = COSTFUNCTION<T>;
         //----------------------
+
+        //if the solver should use worker threads [default: true]
         bool MultiThreading = true;
+
+        //number of worker threads [default: 4]
         int32_t NumThreads = 4;
+
+        //if the solver should use a random seed [default: true]
         bool UseRandomSeed_ = true;
+
+        //the seed [default: 1234567890]
         uint64_t Seed = 1234567890;
+
+        //the bounds of the domain [default: none]
         glm::vec<2, T> Bounds;
+
+        //the max height [default: 150]
         int32_t Height = 150;
-        Detail::PackMethod Method = Detail::PackMethod::ONLINE;
+
+        //if random boxes or a pre-defined list of boxes should be used [default: Random]
         Detail::BoxGenerationType BoxType = Detail::BoxGenerationType::RANDOM;
-        Detail::CostFunction CostFunction = Detail::CostFunction::SIMPLE;
-        bool AllowOverlap = true;
-        //--------------------------
+
+        //if boxes are allowed to overlap [default: false]
+        bool AllowOverlap = false;
+
+        //how many misses in a row before terminating [default: 25]
         int32_t EmptryTries = 25;
+
+        //how many misses in total before terminating [default: 50]
         int32_t MaxEmptryTries = 50;
+
+        //how large the test set is. The same as how far the solver can look ahead [default: 1]
         int32_t SetSize = 1;
+
         //--------------------------
+
+        //if the random boxes should be cubes [default: true]
         bool CubeRandomBoxes = true;
+
+        //the minimum volume of the random boxes [default: 250]
         double MinBoxVolume = 250.;
+
+        //the maximum volume of the random boxes [default: 1500]
         double MaxBoxVolume = 1500.;
+
         //--------------------------
+
+        //the list fo predefined boxes
         Detail::BoxList BoxList;
+
+        //if it should enforce emptry tries. if false the solver runs until the list is empty [default: false]
         bool EnforceMisses = false;
+
     };//Config
 
     namespace Detail {
@@ -633,8 +657,8 @@ void TP::Detail::run_impl(
         }
 
         std::fill(mm.begin(), mm.end(), false);
-        for (int32_t n0 = int32_t(tar.min_.x) / Tree::BUCKET_SIZE; n0 <= int32_t(tar.max_.x) / Tree::BUCKET_SIZE; ++n0) {
-            for (int32_t n1 = int32_t(tar.min_.y) / Tree::BUCKET_SIZE; n1 <= int32_t(tar.max_.y) / Tree::BUCKET_SIZE; ++n1) {
+        for (int32_t n0 = int32_t(tar.min_.x) / Tree::BUCKET_SIZE; n0 < int32_t(tar.max_.x) / Tree::BUCKET_SIZE; ++n0) {
+            for (int32_t n1 = int32_t(tar.min_.y) / Tree::BUCKET_SIZE; n1 < int32_t(tar.max_.y) / Tree::BUCKET_SIZE; ++n1) {
                 const int32_t iid = n0 + n1 * bc;
                 mm[iid] = true;
             }
