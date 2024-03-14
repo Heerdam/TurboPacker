@@ -602,11 +602,11 @@ void TP::Detail::run_impl(
                 int32_t(std::round(aabb.GetExtent().x)),
                 EAxisPerm::X_YZ_1);
 
-            _cont->tg_.wait();
-
             if (_cont->isDone_) break;
 
         }
+ 
+        _cont->tg_.wait();
 
         if (_cont->isDone_) break;
 
