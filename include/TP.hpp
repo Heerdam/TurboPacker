@@ -174,15 +174,19 @@ namespace TP {
             std::unique_ptr<SolverContext<T, H_T, BS, HA>> context_;      
             //-------------
             Promise() = default;
-            Promise(Promise&&) = default;
-            Promise(const Promise&) = delete;
-            Promise& operator=(Promise&&) = default;
-            Promise& operator=(const Promise&) = delete;
             //-------------
             template<typename T_, template<typename> class CF_, typename H_T_ , int32_t BS_, typename HA_>
             friend Promise<T_, H_T_, BS_, HA_> TP::solve(const ::TP::Config<T_, CF_, H_T_, BS_, HA_>& _conf);
         
         public:
+
+            Promise(Promise&&) = default;
+            Promise(const Promise&) = delete;
+            Promise& operator=(Promise&&) = default;
+            Promise& operator=(const Promise&) = delete;
+
+            //-------------
+
             //locks the thread until isDone() == true
             void wait();
 
@@ -194,7 +198,10 @@ namespace TP {
 
             //NOT thread safe! only call when isDone() returns true!
             [[nodiscard]] std::vector<glm::mat<4, 4, T>>& data();
-            
+
+            //thread safe! returns a copy of the data
+            [[nodiscard]] std::vector<glm::mat<4, 4, T>> data_cpy();
+
             //thread safe!
             [[nodiscard]] bool isDone() const;
 
@@ -220,13 +227,15 @@ namespace TP {
 
         //-------------------------
 
+        template<class T>
         struct BoxEntry {
-            glm::vec3 Size;
+            glm::vec<3, T> Size;
             int32_t Count;
         };//BoxEntry
 
+        template<class T>
         struct BoxList {
-            std::vector<BoxEntry> List;
+            std::vector<BoxEntry<T>> List;
             bool ShuffleBoxes = false;
         };//BoxList
 
@@ -248,9 +257,37 @@ namespace TP {
     namespace CostFunction {
 
         template<class T>
-        struct CF_Basic {
-            static T eval(const Detail::Result<T>& _res) { return 0.; };
-        };//CF_Basic
+        struct CF_Constant {
+            static T eval(const Detail::Result<T>& _r) { 
+                return 0.; 
+            };
+        };//CF_Constant
+
+        template<class T>
+        struct CF_BottomLeft {
+            static T eval(const Detail::Result<T>& _r) { 
+                return std::pow(_r.n0 + _r.n1, 2); 
+            };
+        };//CF_BottomLeft
+
+        template<class T>
+        struct CF_BottomLeftHeight {
+            static T eval(const Detail::Result<T>& _r) { 
+                return std::pow(double(_r.h), 3) + std::pow(_r.n0 + _r.n1, 2); 
+            };
+        };//CF_BottomLeftHeight
+
+        template<class T>
+        struct CF_Krass {
+            static T eval(const Detail::Result<T>& _r) {
+                const double c1 = std::pow(_r.n0 + _r.n1, 1);
+                const double c2 = std::pow(double(_r.h), 3);
+                const double c3 = std::pow(_r.b_l + _r.b_h, 3);
+                const double c4 = std::pow(_r.l, 3);
+                const double c5 = std::pow(_r.ext.x * _r.ext.y, 2);
+                return c1 + c2 - c3 + c4 - c5;
+             };
+        };//CF_Krass
 
         //------------------------------
 
@@ -315,7 +352,7 @@ namespace TP {
         //--------------------------
 
         //the list fo predefined boxes
-        Detail::BoxList BoxList;
+        Detail::BoxList<T> BoxList;
 
         //if it should enforce emptry tries. if false the solver runs until the list is empty [default: false]
         bool EnforceMisses = false;
@@ -374,15 +411,22 @@ void TP::Detail::Promise<T, H_T, BS, HA>::stop() {
 template<class T, typename H_T, int32_t BS, typename HA>
 const std::vector<glm::mat<4, 4, T>>& TP::Detail::Promise<T, H_T, BS, HA>::data() const {
     assert(context_);
-    std::lock_guard<std::mutex> lock(context_->m_data);
     return context_->data_;
 }//TP::Detail::Promise::data
 
 template<class T, typename H_T, int32_t BS, typename HA>
 std::vector<glm::mat<4, 4, T>>& TP::Detail::Promise<T, H_T, BS, HA>::data() {
     assert(context_);
-    std::lock_guard<std::mutex> lock(context_->m_data);
     return context_->data_;
+}//TP::Detail::Promise::data
+
+template<class T, typename H_T, int32_t BS, typename HA>
+std::vector<glm::mat<4, 4, T>> TP::Detail::Promise<T, H_T, BS, HA>::data_cpy() {
+    assert(context_);
+    std::lock_guard<std::mutex> lock(context_->m_data);
+    std::vector<glm::mat<4, 4, T>> out;
+    std::copy(context_->data_.begin(), context_->data_.end(), out.begin());
+    return out;
 }//TP::Detail::Promise::data
 
 template<class T, typename H_T, int32_t BS, typename HA>
@@ -394,7 +438,7 @@ bool TP::Detail::Promise<T, H_T, BS, HA>::isDone() const {
 template<class T, typename H_T, int32_t BS, typename HA>
 T TP::Detail::Promise<T, H_T, BS, HA>::getPackDensity() const {
     assert(context_);
-    return context_->vol_.load() / context_->tot_vol_;
+    return context_->vol_.load() * context_->tot_vol_;
 }//TP::Detail::Promise::getPackDensity
 
 template<class T, typename H_T, int32_t BS, typename HA>
@@ -431,7 +475,6 @@ TP::Detail::Promise<T, H_T, BS, HA> TP::solve(const TP::Config<T, CF, H_T, BS, H
     auto c = out.context_.get();
 
     c->isDone_ = false;
-    c->tot_vol_ = _conf.Bounds.x * _conf.Bounds.y * _conf.Height;
     c->mt_ = std::thread(Detail::run_impl<T, CF, H_T, BS, HA>, std::ref(_conf), c);
 
     return out;    
@@ -456,6 +499,8 @@ void TP::Detail::run_impl(
     const int32_t ee0 = _conf.Bounds.y + 2;
     const int32_t ee1 = _conf.Bounds.x + 2;
 
+    _cont->time_start_ = std::chrono::high_resolution_clock::now();
+    _cont->tot_vol_ = T(1.) / (_conf.Height * _conf.Bounds.x * _conf.Bounds.y);
     _cont->N_ = get_power_of_2(std::max(ee0, ee1), Tree::BUCKET_SIZE);
 
     const bool useRandomBox = _conf.BoxType == BoxGenerationType::RANDOM;
@@ -507,9 +552,9 @@ void TP::Detail::run_impl(
     std::deque<glm::vec<3, T>> next_q;
 
     if (_conf.BoxType == BoxGenerationType::LIST) {
-        const BoxList& list = _conf.BoxList;
+        const BoxList<T>& list = _conf.BoxList;
         std::vector<glm::vec<3, T>> tmp;
-        for (const BoxEntry& p : list.List) {
+        for (const BoxEntry<T>& p : list.List) {
             for (int32_t i = 0; i < p.Count; ++i)
                 tmp.push_back(p.Size);
         }
@@ -633,7 +678,7 @@ void TP::Detail::run_impl(
             next_q.push_front(next_set[i] * T(2.));
         }
 
-        const FBox tar = FBox{
+        const FBox<T> tar = FBox<T>{
             glm::vec<3, T>(r.n0 - r.ext.x, r.n1 - r.ext.y, r.h),
             glm::vec<3, T>(r.n0 + r.ext.x, r.n1 + r.ext.y, r.h + 2 * r.ext.z)};
 
@@ -652,20 +697,20 @@ void TP::Detail::run_impl(
             std::lock_guard<std::mutex> lock(_cont->m_data);
             _cont->data_.push_back(tr);
             _cont->bcc_ += 1;
-            _cont->vol_ += 4. * r.ext.x * r.ext.y * r.ext.z;
-            //std::cout << r.ext.x << ", " << r.ext.y << ", " << r.ext.z << std::endl;
+            const auto si = r.ext * T(2.);
+            _cont->vol_ = _cont->vol_ +  si.x * si.y * si.z;
         }
 
         std::fill(mm.begin(), mm.end(), false);
-        for (int32_t n0 = int32_t(tar.min_.x) / Tree::BUCKET_SIZE; n0 < int32_t(tar.max_.x) / Tree::BUCKET_SIZE; ++n0) {
-            for (int32_t n1 = int32_t(tar.min_.y) / Tree::BUCKET_SIZE; n1 < int32_t(tar.max_.y) / Tree::BUCKET_SIZE; ++n1) {
+        for (int32_t n0 = int32_t(tar.min_.x) / Tree::BUCKET_SIZE; n0 <= int32_t(tar.max_.x) / Tree::BUCKET_SIZE; ++n0) {
+            for (int32_t n1 = int32_t(tar.min_.y) / Tree::BUCKET_SIZE; n1 <= int32_t(tar.max_.y) / Tree::BUCKET_SIZE; ++n1) {
                 const int32_t iid = n0 + n1 * bc;
                 mm[iid] = true;
             }
         }
 
-        for (int32_t n0 = int32_t(tar.min_.x); n0 <= int32_t(tar.max_.x); ++n0) {
-            for (int32_t n1 = int32_t(tar.min_.y); n1 <= int32_t(tar.max_.y); ++n1) {
+        for (int32_t n0 = int32_t(tar.min_.x); n0 < int32_t(tar.max_.x); ++n0) {
+            for (int32_t n1 = int32_t(tar.min_.y); n1 < int32_t(tar.max_.y); ++n1) {
                 const int32_t i = n1 + n0 * _cont->N_;
                 _cont->map_[i] = tar.max_.z;
             }
