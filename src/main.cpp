@@ -49,12 +49,14 @@ int main() {
     postpacs.List.emplace_back(glm::vec3{55.5f, 37.0f, 6.0f}, 100);
 
     Config<float, CostFunction::CF_Krass> conf;
+    //conf.MultiThreading = false;
     conf.NumThreads = 8;
     conf.UseRandomSeed_ = false;
-    conf.Bounds = {80., 120. };
+    conf.Bounds = {80., 120.}; 
     conf.Height = 120.;
-    conf.BoxType = Detail::BoxGenerationType::LIST;
-    conf.SetSize = 50;
+    conf.BoxType = Detail::BoxGenerationType::RANDOM;
+    conf.CubeRandomBoxes = false;
+    conf.LookAheadSize = 50;
     conf.EmptryTries = 0;
     conf.MaxEmptryTries = 0;
     conf.AllowOverlap = false;
@@ -67,7 +69,7 @@ int main() {
 
     const auto& b = pr.data();
 
-    std::cout << std::endl << std::format("Done: [{}][{}%][{}s]", pr.getBoxCount(), pr.getPackDensity() * 100., pr.getTime()) << std::endl;
+    std::cout << std::endl << std::format("Done: [{}][{}%][{}s][Missed: {}]", pr.getBoxCount(), pr.getPackDensity() * 100., pr.getTime(), pr.getMissedCount()) << std::endl;
 
     //-------------------------------------
 
@@ -87,7 +89,7 @@ int main() {
 
     Vector2 cursorPos = GetMousePosition();
 
-    Shader shader = LoadShader(0, TextFormat("resources/shaders/glsl%i/grayscale.fs", 330));
+    //Shader shader = LoadShader(0, TextFormat("resources/shaders/glsl%i/grayscale.fs", 330));
 
     while (!WindowShouldClose()) {
 
