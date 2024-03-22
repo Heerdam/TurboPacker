@@ -20,7 +20,7 @@ include(FetchContent)
 
 add_library( TP INTERFACE )
 
-set(BUILD_TEST TRUE)
+#set(BUILD_TEST TRUE)
 
 if (BUILD_TEST)
 
