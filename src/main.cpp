@@ -49,9 +49,10 @@ int main() {
     postpacs.List.emplace_back(glm::vec3{55.5f, 37.0f, 6.0f}, 100);
 
     Config<float, CostFunction::CF_Krass> conf;
-    //conf.MultiThreading = false;
+    conf.MultiThreading = true;
     conf.NumThreads = 8;
     conf.UseRandomSeed_ = false;
+    conf.Seed = 12341234;
     conf.Bounds = {80., 120.}; 
     conf.Height = 120.;
     conf.BoxType = Detail::BoxGenerationType::RANDOM;

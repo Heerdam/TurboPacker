@@ -45,6 +45,7 @@ message(STATUS "Fetching mqt...")
 FetchContent_Declare(
 	MQT2
 	GIT_REPOSITORY https://github.com/Heerdam/MedianQuadtree.git
+	GIT_TAG 24f634d
 )
 FetchContent_MakeAvailable(MQT2)
 

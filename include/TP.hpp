@@ -757,8 +757,8 @@ std::vector<TP::Detail::Result<T>> TP::Detail::overlap_impl(
     if(_ext0 >= ee0 || _ext1 >= ee1) return {};
 
     std::vector<Result<T>> res;
-    for (uint32_t n0 = _ext0 + 1; n0 < ee0 - _ext0 - 1; ++n0) {
-        for (uint32_t n1 = _ext1 + 1; n1 < ee1 - _ext1 - 1; ++n1) {
+    for (int32_t n0 = _ext0 + 1; n0 < ee0 - _ext0 - 1; ++n0) {
+        for (int32_t n1 = _ext1 + 1; n1 < ee1 - _ext1 - 1; ++n1) {
 
             const size_t i = n1 + n0 * _cont->N_;
             assert(i < _cont->map_.size());
