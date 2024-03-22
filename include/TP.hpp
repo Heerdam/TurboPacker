@@ -36,6 +36,13 @@ namespace TP {
 
     namespace Detail {
 
+        [[nodiscard]] inline uint32_t get_power_of_2(const uint32_t _target, const uint32_t _base) noexcept {
+            uint32_t t = _base;
+            while (t < _target)
+                t  = t << 1;
+            return t;
+        }//get_power_2
+
         template<class T>
         struct FBox {
             glm::vec<3, T> min_;
@@ -382,7 +389,7 @@ namespace TP {
             const size_t _set_index,
             const uint32_t _n0, const uint32_t _n1,
             const glm::vec<3, T>& _ext_org,
-            const int32_t _h, EAxisPerm _perm
+            const uint32_t _h, EAxisPerm _perm
         );//dispatch_impl       
 
     }//Detail
@@ -496,7 +503,7 @@ void TP::Detail::run_impl(
 
     _cont->time_start_ = std::chrono::high_resolution_clock::now();
     _cont->tot_vol_ = T(1.) / (_conf.Height * _conf.Bounds.x * _conf.Bounds.y);
-    _cont->N_ = MQT2::Detail::get_power_of_2(std::max(ee0, ee1), Tree::BUCKET_SIZE);
+    _cont->N_ = Detail::get_power_of_2(std::max(ee0, ee1), Tree::BUCKET_SIZE);
 
     const bool useRandomBox = _conf.BoxType == BoxGenerationType::RANDOM;
 
@@ -765,13 +772,13 @@ std::vector<TP::Detail::Result<T>> TP::Detail::overlap_impl(
             if (int32_t(_cont->map_[i]) + 2 * _h >= _conf.Height) continue;
 
             const auto [l1, m1, h1] = _cont->tree_->check_overlap(
-                Vec2{ uint32_t(n0 - _ext0), uint32_t(n1 - _ext1) },
-                Vec2{ uint32_t(n0 + _ext0), uint32_t(n1 + _ext1) },
+                Vec2{ int32_t(n0 - _ext0), int32_t(n1 - _ext1) },
+                Vec2{ int32_t(n0 + _ext0), int32_t(n1 + _ext1) },
                 _cont->map_[i]);
 
             const auto [l2, m2, h2] = _cont->tree_->check_border_overlap(
-                Vec2{ uint32_t(n0 - _ext0) - 1, uint32_t(n1 - _ext1) + 1 },
-                Vec2{ uint32_t(n0 + _ext0) - 1, uint32_t(n1 + _ext1) + 1 },
+                Vec2{ int32_t(n0 - _ext0) - 1, int32_t(n1 - _ext1) + 1 },
+                Vec2{ int32_t(n0 + _ext0) - 1, int32_t(n1 + _ext1) + 1 },
                 _cont->map_[i]);
 
             if (_conf.AllowOverlap) {

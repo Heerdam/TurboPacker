@@ -20,7 +20,7 @@ include(FetchContent)
 
 add_library( TP INTERFACE )
 
-#set(BUILD_TEST TRUE)
+set(BUILD_TEST TRUE)
 
 if (BUILD_TEST)
 
@@ -45,7 +45,7 @@ message(STATUS "Fetching mqt...")
 FetchContent_Declare(
 	MQT2
 	GIT_REPOSITORY https://github.com/Heerdam/MedianQuadtree.git
-	GIT_TAG 24f634d
+	GIT_TAG 7a7df421aac4ad40fe184ebd1261136c595055db
 )
 FetchContent_MakeAvailable(MQT2)
 
