@@ -20,7 +20,7 @@ include(FetchContent)
 
 add_library( TP INTERFACE )
 
-#set(BUILD_TEST TRUE)
+set(BUILD_TEST TRUE)
 
 if (BUILD_TEST)
 
@@ -38,6 +38,45 @@ if (BUILD_TEST)
 	set(GRAPHICS "GRAPHICS_API_OPENGL_43" FORCE)
 	FetchContent_MakeAvailable(RAYLIB)
 
+	# ------------------ IMGUI ------------------
+	message(STATUS "Fetching imgui...")
+	FetchContent_Declare(
+		imgui
+		GIT_REPOSITORY      https://github.com/ocornut/imgui.git
+		GIT_TAG             v1.90.4
+	)
+	FetchContent_GetProperties(imgui)
+	if(NOT imgui_POPULATED)
+		FetchContent_Populate(imgui)
+		set(IMGUI_FILES
+			"${imgui_SOURCE_DIR}/imgui_demo.cpp"
+			"${imgui_SOURCE_DIR}/imgui_draw.cpp"
+			"${imgui_SOURCE_DIR}/imgui_widgets.cpp"
+			"${imgui_SOURCE_DIR}/imgui_tables.cpp"
+			"${imgui_SOURCE_DIR}/imgui.cpp"		
+		)
+		add_library(imgui "${IMGUI_FILES}")
+		target_include_directories(TPtest PUBLIC "${imgui_SOURCE_DIR}")
+	endif()
+
+	# ------------------ RAYGUI ------------------
+	message(STATUS "Fetching raygui...")
+	FetchContent_Declare(
+		rimgui
+		GIT_REPOSITORY      https://github.com/raylib-extras/rlImGui.git
+		GIT_TAG 			main
+	)
+	FetchContent_GetProperties(rimgui)
+	if(NOT Rimgui_POPULATED)
+		FetchContent_Populate(rimgui)
+		set(RIMGUI_FILES
+			"${rimgui_SOURCE_DIR}/rlImGui.cpp"
+		)
+		add_library(rimgui "${RIMGUI_FILES}")
+		target_include_directories(TPtest PUBLIC "${rimgui_SOURCE_DIR}")
+	endif()
+	target_link_libraries(rimgui PUBLIC imgui raylib)
+
 endif()
 
 # ------------------ MQT ------------------
@@ -45,7 +84,6 @@ message(STATUS "Fetching mqt...")
 FetchContent_Declare(
 	MQT2
 	GIT_REPOSITORY https://github.com/Heerdam/MedianQuadtree.git
-	GIT_TAG 7a7df421aac4ad40fe184ebd1261136c595055db
 )
 FetchContent_MakeAvailable(MQT2)
 
@@ -60,7 +98,7 @@ FetchContent_MakeAvailable(glm)
 
 if (BUILD_TEST)
 	target_include_directories(TPtest PUBLIC include )
-	target_link_libraries(TPtest MQT2 glm::glm raylib )
+	target_link_libraries(TPtest MQT2 glm::glm raylib imgui rimgui)
 endif()
 
 # -----------------------------------------

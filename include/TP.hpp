@@ -22,17 +22,17 @@
 namespace TP {
 
     namespace Detail {
-        template<class, typename, uint32_t, typename> 
+        template<class, typename, typename, uint32_t, typename> 
         class Promise;
     }
 
-    template<class, template<typename> class, class, uint32_t, class>
+    template<class, template<typename> class, class, class, uint32_t, class>
     struct Config;
 
     //----------------------
 
-    template<typename T, template<typename> class CF, typename H_T, uint32_t BS, typename HA>
-    [[nodiscard]] Detail::Promise<T, H_T, BS, HA> solve(const Config<T, CF, H_T, BS, HA>& _config);
+    template<typename T, template<typename> class CF, typename H_T, typename R_T, uint32_t BS, typename HA>
+    [[nodiscard]] Detail::Promise<T, H_T, R_T, BS, HA> solve(const Config<T, CF, H_T, R_T, BS, HA>& _config);
 
     namespace Detail {
 
@@ -136,11 +136,11 @@ namespace TP {
 
         //-------------------------
 
-        template<class T, typename H_T, uint32_t BS, typename HA>
+        template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
         struct SolverContext {
 
             std::vector<H_T> map_;
-            std::unique_ptr<MQT2::MedianQuadTree<H_T, BS, HA>> tree_;
+            std::unique_ptr<MQT2::MedianQuadTree<H_T, R_T, BS, HA>> tree_;
 
             std::thread mt_;
             TaskGraph tg_;
@@ -154,6 +154,7 @@ namespace TP {
             std::condition_variable cv_;
 
             std::chrono::high_resolution_clock::time_point time_start_;
+            std::chrono::high_resolution_clock::time_point time_end_;
             std::atomic<bool> isDone_ = true;
             std::atomic<double> vol_ = 0.;
             std::atomic<int32_t> bcc_ = 0;
@@ -170,15 +171,15 @@ namespace TP {
 
         //-------------------------
 
-        template<class T, typename H_T, uint32_t BS, typename HA>
+        template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
         class Promise {
 
-            std::unique_ptr<SolverContext<T, H_T, BS, HA>> context_;      
+            std::unique_ptr<SolverContext<T, H_T, R_T, BS, HA>> context_;      
             //-------------
             Promise() = default;
             //-------------
-            template<typename T_, template<typename> class CF_, typename H_T_ , uint32_t BS_, typename HA_>
-            friend Promise<T_, H_T_, BS_, HA_> TP::solve(const ::TP::Config<T_, CF_, H_T_, BS_, HA_>& _conf);
+            template<typename T_, template<typename> class CF_, typename H_T_, typename R_T_, uint32_t BS_, typename HA_>
+            friend Promise<T_, H_T_, R_T_, BS_, HA_> TP::solve(const ::TP::Config<T_, CF_, H_T_, R_T_, BS_, HA_>& _conf);
         
         public:
 
@@ -299,7 +300,7 @@ namespace TP {
 
     };//CostFunction
 
-    template<class T, template<typename> class COSTFUNCTION, class HEIGHTMAP_T = uint16_t, uint32_t BUCKET_SIZE = 15, class HEIGHTMAP_ALLOCATOR = std::allocator<HEIGHTMAP_T>>
+    template<class T, template<typename> class COSTFUNCTION, class HEIGHTMAP_T = uint16_t, class R_T = uint32_t, uint32_t BUCKET_SIZE = 15, class HEIGHTMAP_ALLOCATOR = std::allocator<HEIGHTMAP_T>>
     struct Config {
         using T_ = T;
         using HEIGHTMAP_T_ = HEIGHTMAP_T;
@@ -315,7 +316,7 @@ namespace TP {
         uint32_t NumThreads = 4;
 
         //if the solver should use a random seed [default: true]
-        bool UseRandomSeed_ = true;
+        bool UseRandomSeed = true;
 
         //the seed [default: 1234567890]
         uint64_t Seed = 1234567890;
@@ -347,10 +348,10 @@ namespace TP {
         bool CubeRandomBoxes = true;
 
         //the minimum volume of the random boxes [default: 250]
-        double MinBoxVolume = 250.;
+        float MinBoxVolume = 250.;
 
         //the maximum volume of the random boxes [default: 1500]
-        double MaxBoxVolume = 1500.;
+        float MaxBoxVolume = 1500.;
 
         //--------------------------
 
@@ -364,25 +365,25 @@ namespace TP {
 
     namespace Detail {
 
-        template<typename T, template<typename> class CF, typename H_T, uint32_t BS, typename HA>
+        template<typename T, template<typename> class CF, typename H_T, typename R_T, uint32_t BS, typename HA>
         void run_impl(
-            Config<T, CF, H_T, BS, HA> _conf,
-            SolverContext<T, H_T, BS, HA>* _cont
+            Config<T, CF, H_T, R_T, BS, HA> _conf,
+            SolverContext<T, H_T, R_T, BS, HA>* _cont
         );//run_impl
 
-        template<typename T, template<typename> class CF, typename H_T, uint32_t BS, typename HA>
+        template<typename T, template<typename> class CF, typename H_T, typename R_T, uint32_t BS, typename HA>
         [[nodiscard]] std::vector<Result<T>> overlap_impl(
-            const Config<T, CF, H_T, BS, HA>& _conf,
-            SolverContext<T, H_T, BS, HA>* _cont,
+            const Config<T, CF, H_T, R_T, BS, HA>& _conf,
+            SolverContext<T, H_T, R_T, BS, HA>* _cont,
             const uint32_t _ext0, 
             const uint32_t _ext1, 
             const uint32_t _h
         );//overlap_impl
 
-        template<typename T, template<typename> class CF, typename H_T, uint32_t BS, typename HA>
+        template<typename T, template<typename> class CF, typename H_T, typename R_T, uint32_t BS, typename HA>
         void dispatch_impl(
-            const Config<T, CF, H_T, BS, HA>& _conf,
-            SolverContext<T, H_T, BS, HA>* _cont,
+            const Config<T, CF, H_T, R_T, BS, HA>& _conf,
+            SolverContext<T, H_T, R_T, BS, HA>* _cont,
             std::vector<Result<T>>& _res,
             std::mutex& _m,
             std::atomic<double>& _minc,
@@ -398,86 +399,84 @@ namespace TP {
 
 //------------------------------
 
-template<class T, typename H_T, uint32_t BS, typename HA>
-void TP::Detail::Promise<T, H_T, BS, HA>::wait() {
+template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
+void TP::Detail::Promise<T, H_T, R_T, BS, HA>::wait() {
     std::unique_lock<std::mutex> lock (context_->m_data);
     context_->cv_.wait(lock, [&]{ return context_->isDone_.load(); });
 }//TP::Detail::Promise::wait
 
-template<class T, typename H_T, uint32_t BS, typename HA>
-void TP::Detail::Promise<T, H_T, BS, HA>::stop() {
+template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
+void TP::Detail::Promise<T, H_T, R_T, BS, HA>::stop() {
     assert(context_);
-    context_->isPacking_ = false;
+    context_->isDone_ = false;
 }//TP::Detail::Promise::wait
 
-template<class T, typename H_T, uint32_t BS, typename HA>
-const std::vector<glm::mat<4, 4, T>>& TP::Detail::Promise<T, H_T, BS, HA>::data() const {
+template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
+const std::vector<glm::mat<4, 4, T>>& TP::Detail::Promise<T, H_T, R_T, BS, HA>::data() const {
     assert(context_);
     return context_->data_;
 }//TP::Detail::Promise::data
 
-template<class T, typename H_T, uint32_t BS, typename HA>
-std::vector<glm::mat<4, 4, T>>& TP::Detail::Promise<T, H_T, BS, HA>::data() {
+template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
+std::vector<glm::mat<4, 4, T>>& TP::Detail::Promise<T, H_T, R_T, BS, HA>::data() {
     assert(context_);
     return context_->data_;
 }//TP::Detail::Promise::data
 
-template<class T, typename H_T, uint32_t BS, typename HA>
-std::vector<glm::mat<4, 4, T>> TP::Detail::Promise<T, H_T, BS, HA>::data_cpy() {
+template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
+std::vector<glm::mat<4, 4, T>> TP::Detail::Promise<T, H_T, R_T, BS, HA>::data_cpy() {
     assert(context_);
     std::lock_guard<std::mutex> lock(context_->m_data);
-    std::vector<glm::mat<4, 4, T>> out;
-    std::copy(context_->data_.begin(), context_->data_.end(), out.begin());
-    return out;
+    return context_->data_;
 }//TP::Detail::Promise::data
 
-template<class T, typename H_T, uint32_t BS, typename HA>
-bool TP::Detail::Promise<T, H_T, BS, HA>::isDone() const {
+template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
+bool TP::Detail::Promise<T, H_T, R_T, BS, HA>::isDone() const {
     assert(context_);
     return context_->isDone_.load();
 }//TP::Detail::Promise::isDone
 
-template<class T, typename H_T, uint32_t BS, typename HA>
-T TP::Detail::Promise<T, H_T, BS, HA>::getPackDensity() const {
+template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
+T TP::Detail::Promise<T, H_T, R_T, BS, HA>::getPackDensity() const {
     assert(context_);
     return context_->vol_.load() * context_->tot_vol_;
 }//TP::Detail::Promise::getPackDensity
 
-template<class T, typename H_T, uint32_t BS, typename HA>
-uint32_t TP::Detail::Promise<T, H_T, BS, HA>::getBoxCount() const {
+template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
+uint32_t TP::Detail::Promise<T, H_T, R_T, BS, HA>::getBoxCount() const {
     assert(context_);
     return context_->bcc_.load();
 }//TP::Detail::Promise::getBoxCount
 
-template<class T, typename H_T, uint32_t BS, typename HA>
-uint32_t TP::Detail::Promise<T, H_T, BS, HA>::getMissedCount() const {
+template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
+uint32_t TP::Detail::Promise<T, H_T, R_T, BS, HA>::getMissedCount() const {
     assert(context_);
     return context_->mcc_.load();
 }//TP::Detail::Promise::getMissedCount
 
-template<class T, typename H_T, uint32_t BS, typename HA>
-double TP::Detail::Promise<T, H_T, BS, HA>::getTime() const {
+template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
+double TP::Detail::Promise<T, H_T, R_T, BS, HA>::getTime() const {
     assert(context_);
-    const auto now = std::chrono::high_resolution_clock::now();
+    const auto now = context_->isDone_.load() ? context_->time_end_ : std::chrono::high_resolution_clock::now();
     const std::chrono::duration<double> ee = now - context_->time_start_;
     return ee.count();
 }//TP::Detail::Promise::getTime
 
 //------------------------------
 
-template<typename T, template<typename> class CF, typename H_T, uint32_t BS, typename HA>
-TP::Detail::Promise<T, H_T, BS, HA> TP::solve(const TP::Config<T, CF, H_T, BS, HA>& _conf) {
+template<typename T, template<typename> class CF, typename H_T, typename R_T, uint32_t BS, typename HA>
+TP::Detail::Promise<T, H_T, R_T, BS, HA> TP::solve(const TP::Config<T, CF, H_T, R_T, BS, HA>& _conf) {
 
     using namespace TP;
     static_assert(std::is_floating_point_v<T>, "T needs to be floating point type!");
     static_assert(CostFunction::isValidCF<T, CF>, "Costfunction has not a valid signature!");
     
-    Detail::Promise<T, H_T, BS, HA> out;
-    out.context_ = std::make_unique<Detail::SolverContext<T, H_T, BS, HA>>(_conf.NumThreads);
+    Detail::Promise<T, H_T, R_T, BS, HA> out;
+    out.context_ = std::make_unique<Detail::SolverContext<T, H_T, R_T, BS, HA>>(_conf.NumThreads);
     auto c = out.context_.get();
 
     c->isDone_ = false;
-    c->mt_ = std::thread(Detail::run_impl<T, CF, H_T, BS, HA>, std::ref(_conf), c);
+    c->mt_ = std::thread(Detail::run_impl<T, CF, H_T, R_T, BS, HA>, std::ref(_conf), c);
 
     return out;    
 
@@ -485,14 +484,14 @@ TP::Detail::Promise<T, H_T, BS, HA> TP::solve(const TP::Config<T, CF, H_T, BS, H
 
 //------------------------------
 
-template<typename T, template<typename> class CF, typename H_T, uint32_t BS, typename HA>
+template<typename T, template<typename> class CF, typename H_T, typename R_T, uint32_t BS, typename HA>
 void TP::Detail::run_impl(
-    Config<T, CF, H_T, BS, HA> _conf,
-    SolverContext<T, H_T, BS, HA>* _cont
+    Config<T, CF, H_T, R_T, BS, HA> _conf,
+    SolverContext<T, H_T, R_T, BS, HA>* _cont
 ) {
 
     using namespace MQT2;
-    using Tree = MQT2::MedianQuadTree<H_T, BS, HA>;
+    using Tree = MQT2::MedianQuadTree<H_T, R_T, BS, HA>;
 
     using Dist = ::std::uniform_int_distribution<>;
     using DistD = ::std::uniform_real_distribution<T>;
@@ -536,7 +535,7 @@ void TP::Detail::run_impl(
     uint32_t et = 0;
 
     std::random_device rd;
-    int64_t Seed = _conf.UseRandomSeed_ ? rd() : _conf.Seed;
+    int64_t Seed = _conf.UseRandomSeed ? rd() : _conf.Seed;
     Rand g(Seed);
     DistD dist = DistD(_conf.MinBoxVolume, _conf.MaxBoxVolume);
 
@@ -703,6 +702,7 @@ void TP::Detail::run_impl(
 
     }
 
+    _cont->time_end_ = std::chrono::high_resolution_clock::now();
     _cont->isDone_ = true;
     _cont->cv_.notify_all();
     
@@ -710,10 +710,10 @@ void TP::Detail::run_impl(
 
 //------------------------------
 
-template<typename T, template<typename> class CF, typename H_T, uint32_t BS, typename HA>
+template<typename T, template<typename> class CF, typename H_T, typename R_T, uint32_t BS, typename HA>
 void TP::Detail::dispatch_impl(
-    const Config<T, CF, H_T, BS, HA>& _conf,
-    SolverContext<T, H_T, BS, HA>* _cont,
+    const Config<T, CF, H_T, R_T, BS, HA>& _conf,
+    SolverContext<T, H_T, R_T, BS, HA>* _cont,
     std::vector<TP::Detail::Result<T>>& _res,
     std::mutex& _m,
     std::atomic<double>& _minc,
@@ -723,7 +723,7 @@ void TP::Detail::dispatch_impl(
     const uint32_t _h, TP::Detail::EAxisPerm _perm
 ) {
         auto tr = [=, &_conf, &_res, &_m, &_minc] () -> void {
-        auto ro = overlap_impl<T, CF, H_T, BS, HA>(_conf, _cont, _ext0, _ext1, _h);
+        auto ro = overlap_impl<T, CF, H_T, R_T, BS, HA>(_conf, _cont, _ext0, _ext1, _h);
         if (!ro.empty()) {
             for (auto& r : ro) {
                 r.set_index_ = set_index_;
@@ -747,16 +747,17 @@ void TP::Detail::dispatch_impl(
 
 //------------------------------
 
-template<typename T, template<typename> class CF, typename H_T, uint32_t BS, typename HA>
+template<typename T, template<typename> class CF, typename H_T, typename R_T, uint32_t BS, typename HA>
 std::vector<TP::Detail::Result<T>> TP::Detail::overlap_impl(
-    const Config<T, CF, H_T, BS, HA>& _conf,
-    SolverContext<T, H_T, BS, HA>* _cont,
+    const Config<T, CF, H_T, R_T, BS, HA>& _conf,
+    SolverContext<T, H_T, R_T, BS, HA>* _cont,
     const uint32_t _ext0, 
     const uint32_t _ext1, 
     const uint32_t _h
 ) {
 
     using namespace MQT2;
+    using Vec2i = Vec2<R_T>;
 
     const uint32_t ee0 = _conf.Bounds.y + 2;
     const uint32_t ee1 = _conf.Bounds.x + 2;
@@ -772,13 +773,13 @@ std::vector<TP::Detail::Result<T>> TP::Detail::overlap_impl(
             if (int32_t(_cont->map_[i]) + 2 * _h >= _conf.Height) continue;
 
             const auto [l1, m1, h1] = _cont->tree_->check_overlap(
-                Vec2{ int32_t(n0 - _ext0), int32_t(n1 - _ext1) },
-                Vec2{ int32_t(n0 + _ext0), int32_t(n1 + _ext1) },
+                Vec2i{ R_T(n0 - _ext0), R_T(n1 - _ext1) },
+                Vec2i{ R_T(n0 + _ext0), R_T(n1 + _ext1) },
                 _cont->map_[i]);
 
             const auto [l2, m2, h2] = _cont->tree_->check_border_overlap(
-                Vec2{ int32_t(n0 - _ext0) - 1, int32_t(n1 - _ext1) + 1 },
-                Vec2{ int32_t(n0 + _ext0) - 1, int32_t(n1 + _ext1) + 1 },
+                Vec2i{ R_T(n0 - _ext0) - 1, R_T(n1 - _ext1) + 1 },
+                Vec2i{ R_T(n0 + _ext0) - 1, R_T(n1 + _ext1) + 1 },
                 _cont->map_[i]);
 
             if (_conf.AllowOverlap) {
