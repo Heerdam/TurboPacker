@@ -75,6 +75,7 @@ if (BUILD_TEST)
 		add_library(rimgui "${RIMGUI_FILES}")
 		target_include_directories(TPtest PUBLIC "${rimgui_SOURCE_DIR}")
 	endif()
+	target_include_directories(rimgui PUBLIC "${imgui_SOURCE_DIR}")
 	target_link_libraries(rimgui PUBLIC imgui raylib)
 
 endif()

@@ -7,6 +7,7 @@
 #include <glm/gtx/matrix_decompose.hpp>
 
 #include <format>
+#include <charconv>
 
 #include <raylib.h>
 #include <raymath.h>
@@ -28,8 +29,9 @@ int main() {
 
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
-    ImFont* regular = io.Fonts->AddFontFromMemoryTTF(Montserrat_Regular_ttf, sizeof(Montserrat_Regular_ttf), 20.f * std::max(scale.x, scale.y));
-    ImFont* bold = io.Fonts->AddFontFromMemoryTTF(Montserrat_Bold_ttf, sizeof(Montserrat_Bold_ttf), 25.f * std::max(scale.x, scale.y));
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; 
+    ImFont* regular = io.Fonts->AddFontFromMemoryTTF(Montserrat_Regular_ttf, sizeof(Montserrat_Regular_ttf), 14.f * std::max(scale.x, scale.y));
+    ImFont* bold = io.Fonts->AddFontFromMemoryTTF(Montserrat_Bold_ttf, sizeof(Montserrat_Bold_ttf), 16.f * std::max(scale.x, scale.y));
     ImGui::StyleColorsDark();
     
     ImGui_ImplRaylib_Init();
@@ -84,9 +86,11 @@ int main() {
         return Color(R, G, B, 255);
     };
 
-    bool windowopen = true;
     const char* str_modes[] = { "Random", "List", "Validate" };
-    int cur_mode = 0;
+    int cur_mode = (int)conf.BoxType;
+    uint64_t seedval = conf.Seed;
+
+    //-------------------------------------
 
     while (!WindowShouldClose()) {
 
@@ -123,7 +127,7 @@ int main() {
 
         ImGui_ImplRaylib_NewFrame();
         ImGui::NewFrame();
-        ImGui::SetNextWindowSize(ImVec2(450, 650));
+        ImGui::SetNextWindowSize(ImVec2(475, 700));
         ImGui::Begin("PackerWidget", (bool*)nullptr, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoResize);
 
         if(pr) {
@@ -165,45 +169,82 @@ int main() {
 
         ImGui::Dummy({0, 10});
         ImGui::Separator();
+        ImGui::Dummy({0, 4});
         ImGui::PushFont(bold);
         ImGui::Text("Config");
         ImGui::PopFont();
-        ImGui::Dummy({0, 10});
+        ImGui::Dummy({0, 4});
 
-        if(ImGui::BeginCombo("Method", str_modes[cur_mode])) {
+        if(ImGui::BeginCombo("Mode", str_modes[cur_mode])) {
             for(int32_t i = 0; i < IM_ARRAYSIZE(str_modes); ++i){
                 if(ImGui::Selectable(str_modes[i], cur_mode == i)){
                     cur_mode = i;
+                    switch(cur_mode){
+                        case 0: conf.BoxType = Detail::BoxGenerationType::RANDOM; break;
+                        case 1: conf.BoxType = Detail::BoxGenerationType::LIST; break;
+                        case 2: conf.BoxType = Detail::BoxGenerationType::VALIDATE; break;
+                    }
                 } 
                 if(i == cur_mode) ImGui::SetItemDefaultFocus();
             }
             ImGui::EndCombo();
         }
 
-        ImGui::PopFont();
         ImGui::Checkbox("Multithreading", &conf.MultiThreading);
         ImGui::Checkbox("Random Seed", &conf.UseRandomSeed);
-        //ImGui::InputInt("Seed", &conf.Seed);
+        {
+            seedval = conf.Seed;
+            char buf[20];
+            std::sprintf(buf, "%llu", seedval);
+            if(ImGui::InputText("Seed", buf, IM_ARRAYSIZE(buf), ImGuiInputTextFlags_CallbackAlways, [](ImGuiInputTextCallbackData* data) {
+                if (data->EventFlag == ImGuiInputTextFlags_CallbackAlways) {
+                    uint64_t* p_value = (uint64_t*)data->UserData;
+                    std::string input_text(data->Buf);
+                    uint64_t value;
+                    auto [ptr, ec] = std::from_chars(input_text.data(), input_text.data() + input_text.size(), value);
+                    if (ec != std::errc::invalid_argument && ec != std::errc::result_out_of_range)
+                        *p_value = value; 
+                }
+                return 0;
+            }, &seedval)){
+                if(!conf.UseRandomSeed) conf.Seed = seedval;
+            }
+        }
         ImGui::Checkbox("Allow Overlap", &conf.AllowOverlap);
+
+        ImGui::Dummy({0, 4});
         ImGui::Separator();
+        ImGui::Dummy({0, 4});
+
         ImGui::InputFloat2("Bounds", glm::value_ptr(conf.Bounds));
         ImGui::InputInt("Height", (int32_t*)&conf.Height);
+
+        ImGui::Dummy({0, 4});
         ImGui::Separator();
+        ImGui::Dummy({0, 4});
+
         ImGui::InputInt("Empty Tries", (int32_t*)&conf.EmptryTries);
         ImGui::InputInt("Max Empty Tries", (int32_t*)&conf.MaxEmptryTries);
         ImGui::InputInt("Look Ahead", (int32_t*)&conf.LookAheadSize);
-        ImGui::Separator();
-        ImGui::Checkbox("Use Cubes", &conf.CubeRandomBoxes);
-        ImGui::InputFloat("Min Box Volume", &conf.MinBoxVolume);
-        ImGui::InputFloat("Max Box Volume", &conf.MaxBoxVolume);
-        ImGui::Separator();
-        ImGui::Checkbox("Enforce Misses", &conf.EnforceMisses);
-       
 
+        ImGui::Dummy({0, 4});
+        ImGui::Separator();
+        ImGui::Dummy({0, 4});
+
+        if(conf.BoxType == Detail::BoxGenerationType::RANDOM){
+            ImGui::Checkbox("Use Cubes", &conf.CubeRandomBoxes);
+            ImGui::InputFloat("Min Box Volume", &conf.MinBoxVolume);
+            ImGui::InputFloat("Max Box Volume", &conf.MaxBoxVolume);
+        } else if(conf.BoxType == Detail::BoxGenerationType::LIST) {
+            ImGui::Checkbox("Enforce Misses", &conf.EnforceMisses);
+        } else if(conf.BoxType == Detail::BoxGenerationType::VALIDATE) {
+            
+        }
+       
         ImGui::End();
         ImGui::Render();
         ImGui_ImplRaylib_RenderDrawData(ImGui::GetDrawData());
-        DrawFPS(GetScreenWidth() - 85, 5);
+        DrawFPS(GetScreenWidth() - 100, 5);
         EndDrawing();
 
     }

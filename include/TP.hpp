@@ -12,6 +12,8 @@
 #include <random>
 #include <syncstream>
 #include <queue>
+#include <algorithm>
+#include <numeric>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/mat4x4.hpp>
@@ -259,7 +261,7 @@ namespace TP {
         //-------------------------
 
         enum class BoxGenerationType : uint8_t {
-            RANDOM, LIST
+            RANDOM, LIST, VALIDATE
         };//PackType
 
         //-------------------------
@@ -306,7 +308,11 @@ namespace TP {
 
     template<class T>
     [[nodiscard]] std::vector<std::pair<int32_t, Detail::FBox<T>>> 
-    squarify(const Detail::FBox<T>& _bounds, const std::vector<std::pair<int32_t, Detail::Interval<T>>>& _boxes);
+    squarify(
+        const Detail::FBox<T>& _bounds, 
+        const std::vector<std::pair<int32_t, Detail::Interval<T>>>& _boxes, 
+        const uint64_t _seed
+    );//squarify
 
     namespace CostFunction {
 
@@ -960,7 +966,7 @@ glm::mat<4, 4, T> TP::Detail::make_transform (
 //-----------------------------------------
 
 template<class T>
-std::vector<TP::Detail::FBox<T>> TP::squarify(
+std::vector<std::pair<int32_t, TP::Detail::FBox<T>>> TP::squarify(
     const Detail::FBox<T>& _bounds, 
     const std::vector<std::pair<int32_t, Detail::Interval<T>>>& _boxes,
     const uint64_t _seed
