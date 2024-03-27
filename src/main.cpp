@@ -17,19 +17,19 @@
 #include <font_regular.h>
 #include <font_bold.h>
 
+
 int main() {
 
     using namespace TP;
 
     InitWindow(1920, 1080, "TurboPacker");
-    SetTargetFPS(60); 
 
     const auto scale = GetWindowScaleDPI();
 
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     ImFont* regular = io.Fonts->AddFontFromMemoryTTF(Montserrat_Regular_ttf, sizeof(Montserrat_Regular_ttf), 20.f * std::max(scale.x, scale.y));
-    ImFont* bold = io.Fonts->AddFontFromMemoryTTF(Montserrat_Bold_ttf, sizeof(Montserrat_Bold_ttf), 21.f * std::max(scale.x, scale.y));
+    ImFont* bold = io.Fonts->AddFontFromMemoryTTF(Montserrat_Bold_ttf, sizeof(Montserrat_Bold_ttf), 25.f * std::max(scale.x, scale.y));
     ImGui::StyleColorsDark();
     
     ImGui_ImplRaylib_Init();
@@ -85,6 +85,8 @@ int main() {
     };
 
     bool windowopen = true;
+    const char* str_modes[] = { "Random", "List", "Validate" };
+    int cur_mode = 0;
 
     while (!WindowShouldClose()) {
 
@@ -121,9 +123,9 @@ int main() {
 
         ImGui_ImplRaylib_NewFrame();
         ImGui::NewFrame();
-
         ImGui::SetNextWindowSize(ImVec2(450, 650));
         ImGui::Begin("PackerWidget", (bool*)nullptr, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoResize);
+
         if(pr) {
             ImGui::PushFont(bold);
             ImGui::Text(std::format("{}s", pr->getTime()).data());
@@ -166,6 +168,19 @@ int main() {
         ImGui::PushFont(bold);
         ImGui::Text("Config");
         ImGui::PopFont();
+        ImGui::Dummy({0, 10});
+
+        if(ImGui::BeginCombo("Method", str_modes[cur_mode])) {
+            for(int32_t i = 0; i < IM_ARRAYSIZE(str_modes); ++i){
+                if(ImGui::Selectable(str_modes[i], cur_mode == i)){
+                    cur_mode = i;
+                } 
+                if(i == cur_mode) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::PopFont();
         ImGui::Checkbox("Multithreading", &conf.MultiThreading);
         ImGui::Checkbox("Random Seed", &conf.UseRandomSeed);
         //ImGui::InputInt("Seed", &conf.Seed);
@@ -188,6 +203,7 @@ int main() {
         ImGui::End();
         ImGui::Render();
         ImGui_ImplRaylib_RenderDrawData(ImGui::GetDrawData());
+        DrawFPS(GetScreenWidth() - 85, 5);
         EndDrawing();
 
     }
