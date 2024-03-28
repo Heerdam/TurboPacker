@@ -8,6 +8,7 @@
 
 #include <format>
 #include <charconv>
+#include <future>
 
 #include <raylib.h>
 #include <raymath.h>
@@ -53,7 +54,7 @@ int main() {
     conf.Seed = 12341234;
     conf.Bounds = {80., 120.}; 
     conf.Height = 120.;
-    conf.BoxType = Detail::BoxGenerationType::LIST;
+    conf.BoxType = Detail::BoxGenerationType::VALIDATE;
     conf.CubeRandomBoxes = false;
     conf.LookAheadSize = 50;
     conf.EmptryTries = 0;
@@ -64,8 +65,7 @@ int main() {
     conf.BoxList = std::move(postpacs);
 
     using Prmise = decltype(solve(conf));
-    std::unique_ptr<Prmise> pr;
-
+    std::unique_ptr<Prmise> pr = nullptr;
     //-------------------------------------
     Util::Camera3d camera;
     camera.up = { 0., 1., 0. };
@@ -86,9 +86,13 @@ int main() {
         return Color(R, G, B, 255);
     };
 
+    
+
     const char* str_modes[] = { "Random", "List", "Validate" };
     int cur_mode = (int)conf.BoxType;
     uint64_t seedval = conf.Seed;
+    std::unique_ptr<std::future<std::unique_ptr<EvalRes>>> eval_prm = nullptr;
+    std::unique_ptr<EvalRes> eval_res = nullptr;
 
     //-------------------------------------
 
@@ -127,8 +131,8 @@ int main() {
 
         ImGui_ImplRaylib_NewFrame();
         ImGui::NewFrame();
-        ImGui::SetNextWindowSize(ImVec2(475, 700));
-        ImGui::Begin("PackerWidget", (bool*)nullptr, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoResize);
+        ImGui::SetNextWindowSize(ImVec2(475, 700), ImGuiCond_FirstUseEver);
+        ImGui::Begin("PackerWidget", (bool*)nullptr, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize);
 
         if(pr) {
             ImGui::PushFont(bold);
@@ -238,6 +242,23 @@ int main() {
         } else if(conf.BoxType == Detail::BoxGenerationType::LIST) {
             ImGui::Checkbox("Enforce Misses", &conf.EnforceMisses);
         } else if(conf.BoxType == Detail::BoxGenerationType::VALIDATE) {
+
+            if(!eval_prm){
+                if(ImGui::Button("Generate Problem", ImVec2(100, 30))) {
+                    eval_prm = std::make_unique<>(std::async([](ImVec2 _size, int32_t _count){}));
+                }
+            } else {
+                ImGui::Text("Generating...");
+            }
+
+            if(eval_prm && eval_prm->valid()){
+                eval_res = eval_prm->get();    
+                eval_prm = nullptr;
+            }
+
+            if(eval_res){
+                ImGui::Image((void*)(intptr_t)eval_res->tex_.id, ImVec2(100, 100));
+            }
             
         }
        

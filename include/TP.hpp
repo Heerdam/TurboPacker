@@ -307,7 +307,7 @@ namespace TP {
     }//Detail
 
     template<class T>
-    [[nodiscard]] std::vector<std::pair<int32_t, Detail::FBox<T>>> 
+    [[nodiscard]] std::vector<std::pair<int32_t, Detail::FBox<int32_t>>> 
     squarify(
         const Detail::FBox<T>& _bounds, 
         const std::vector<std::pair<int32_t, Detail::Interval<T>>>& _boxes, 
@@ -966,7 +966,7 @@ glm::mat<4, 4, T> TP::Detail::make_transform (
 //-----------------------------------------
 
 template<class T>
-std::vector<std::pair<int32_t, TP::Detail::FBox<T>>> TP::squarify(
+std::vector<std::pair<int32_t, TP::Detail::FBox<int32_t>>> TP::squarify(
     const Detail::FBox<T>& _bounds, 
     const std::vector<std::pair<int32_t, Detail::Interval<T>>>& _boxes,
     const uint64_t _seed
@@ -998,10 +998,17 @@ std::vector<std::pair<int32_t, TP::Detail::FBox<T>>> TP::squarify(
     std::vector<std::pair<int32_t, FBox<T>>> res;
     Detail::impl_squarify(res, _bounds, c, std::vector<std::pair<int32_t, T>>(), nd, _bounds.minWidth());
 
-    std::vector<std::pair<int32_t, FBox<T>>> out;
+    const auto iquad = [](const auto FBox<T>& _b){
+        FBox<int32_t> out;
+        out.min_ = { (int32_t)std::round(_b.min_.x_), (int32_t)std::round(_b.min_.y_) };
+        out.max_ = { (int32_t)std::round(_b.max_.x_), (int32_t)std::round(_b.max_.y_) };
+        return out;
+    };
+
+    std::vector<std::pair<int32_t, FBox<int32_t>>> out;
     out.reserve(res.size());
     for(auto& r : res)
-        out.push_back( { r.id_, r.bounds_ * frac });
+        out.push_back( { r.id_, iquad(r.bounds_ * frac) });
 
     return out;
 
