@@ -78,6 +78,24 @@ if (BUILD_TEST)
 	target_include_directories(rimgui PUBLIC "${imgui_SOURCE_DIR}")
 	target_link_libraries(rimgui PUBLIC imgui raylib)
 
+	# ------------------ LODEPNG ------------------
+	message(STATUS "Fetching lodepng...")
+	FetchContent_Declare(
+		lodepng
+		GIT_REPOSITORY      https://github.com/lvandeve/lodepng.git
+	)
+	FetchContent_GetProperties(lodepng)
+	if(NOT lodepng_POPULATED)
+		FetchContent_Populate(lodepng)
+
+		set(LODEPNG_FILES
+			"${lodepng_SOURCE_DIR}/lodepng.cpp"	
+		)
+
+		add_library(lodepng "${LODEPNG_FILES}")
+		target_include_directories(TPtest PUBLIC "${lodepng_SOURCE_DIR}")
+	endif()
+
 endif()
 
 # ------------------ MQT ------------------
@@ -99,7 +117,7 @@ FetchContent_MakeAvailable(glm)
 
 if (BUILD_TEST)
 	target_include_directories(TPtest PUBLIC include )
-	target_link_libraries(TPtest MQT2 glm::glm raylib imgui rimgui)
+	target_link_libraries(TPtest MQT2 glm::glm raylib imgui rimgui lodepng)
 endif()
 
 # -----------------------------------------

@@ -14,6 +14,7 @@
 #include <queue>
 #include <algorithm>
 #include <numeric>
+#include <filesystem>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/mat4x4.hpp>
@@ -21,6 +22,8 @@
 #include <glm/ext/scalar_constants.hpp>
 #include <glm/gtx/transform.hpp>
 #include <glm/gtx/string_cast.hpp>
+
+#include <lodepng.h>
 
 namespace TP {
 
@@ -50,6 +53,47 @@ namespace TP {
 
     namespace Detail {
 
+        template<class R, bool LogScaling>
+        void image_real(
+            const int32_t _n0,
+            const int32_t _n1,
+            R* _buffer,
+            const std::string& _filename,
+            const std::string& _folder
+        ) {
+            {
+                const std::filesystem::path path = std::filesystem::path(_folder);
+                if (!std::filesystem::exists(path))
+                    std::filesystem::create_directory(path);
+            }
+
+            double max = -std::numeric_limits<double>::infinity();
+            for (int32_t i = 0; i < _n0 * _n1; ++i)
+                max = std::max<double>(max, std::abs(double(_buffer[i])));
+
+            const double frac = 1. / max;
+            std::vector<unsigned char> img;
+            for (int32_t n1 = 0; n1 < _n1; ++n1) {
+                for (int32_t n0 = 0; n0 < _n0; ++n0) {	
+                    const int32_t i1 = n0 + n1 * _n0;
+                    unsigned char c = 0;
+
+                    if constexpr (LogScaling) {
+                        c = std::abs(1. - std::abs(std::log(std::abs(1. + double(_buffer[i1])))) / std::log(max));
+                    } else {
+                        c = 255 * (std::abs(double(_buffer[i1])) * frac);
+                    }
+
+                    img.push_back(c);
+                    img.push_back(c);
+                    img.push_back(c);
+                    img.push_back(255);
+                }
+            }
+            const std::filesystem::path path = std::filesystem::path(_folder) / _filename;
+            lodepng::encode(path.string(), img.data(), _n0, _n1);
+        }//Layouter::Detail::image_real
+
         [[nodiscard]] inline uint32_t get_power_of_2(const uint32_t _target, const uint32_t _base) noexcept {
             uint32_t t = _base;
             while (t < _target)
@@ -57,30 +101,32 @@ namespace TP {
             return t;
         }//get_power_2
 
-        template<class T>
+        template<int32_t DIM, class T>
         struct FBox {
-            glm::vec<3, T> min_;
-            glm::vec<3, T> max_;
-            [[nodiscard]] glm::vec<3, T> GetExtent() const noexcept { return (max_ - min_) * T(0.5); }
-            [[nodiscard]] glm::vec<3, T> GetCenter() const noexcept { return min_ + GetExtent(); }
-            [[nodiscard]] glm::vec<2, T> getSize() const noexcept { return (max_ - min_); }
-            [[nodiscard]] T minWidth() const noexcept { return std::min(max_.x_ - min_.x_, max_.y_ - min_.y_); }
-            [[nodiscard]] T getArea() const noexcept { return (max_.x_ - min_.x_) * (max_.y_ - min_.y_); }
-            [[nodiscard]] T getAspectRatio() const noexcept { return (max_.x_ - min_.x_) / (max_.y_ - min_.y_); } 
+            glm::vec<DIM, T> min_;
+            glm::vec<DIM, T> max_;
+            [[nodiscard]] glm::vec<DIM, T> GetExtent() const noexcept { return (max_ - min_) * T(0.5); }
+            [[nodiscard]] glm::vec<DIM, T> GetCenter() const noexcept { return min_ + GetExtent(); }
+            [[nodiscard]] glm::vec<DIM, T> getSize() const noexcept { return (max_ - min_); }
+            [[nodiscard]] T minWidth() const noexcept { return std::min(max_.x - min_.x, max_.y - min_.y); }
+            [[nodiscard]] T getArea() const noexcept { return (max_.x - min_.x) * (max_.y - min_.y); }
+            [[nodiscard]] T getAspectRatio() const noexcept { return (max_.x - min_.x) / (max_.y - min_.y); } 
         };//FBox
 
-        template<class T>
-        [[nodiscard]] inline FBox<T> operator*(const FBox<T>& _q, const T _frac) noexcept {
+        template<int32_t DIM, class T>
+        [[nodiscard]] inline FBox<DIM, T> operator*(const FBox<DIM, T>& _q, const T _frac) noexcept {
             const T f = std::sqrt(_frac);
-            const auto c = _q.getCentre() * f;
-            const auto e = _q.getExtends() * f;
-            return FBox<T>{ c - e, c + e };
+            const auto c = _q.GetCenter() * f;
+            const auto e = _q.GetExtent() * f;
+            return FBox<DIM, T>{ c - e, c + e };
         }//operator*
 
-        template<class T>
-        [[nodiscard]] inline bool operator<(const FBox<T>& _q1, const FBox<T>& _q2) noexcept {
+        template<int32_t DIM, class T>
+        [[nodiscard]] inline bool operator<(const FBox<DIM, T>& _q1, const FBox<DIM, T>& _q2) noexcept {
             return _q1.getArea() < _q2.getArea();
         }//operator>
+
+        //-------------------------
 
         template<class T>
         struct Interval {
@@ -165,7 +211,7 @@ namespace TP {
         template<class T>
         [[nodiscard]] glm::mat<4, 4, T> make_transform(
             const EAxisPerm _perm,
-            const FBox<T>& _target,
+            const FBox<3, T>& _target,
             const glm::vec<3, T>& _pivot_offset,
             const glm::vec<3, T>& _ext
         );//make_transform
@@ -296,8 +342,8 @@ namespace TP {
 
         template<class T>
         void impl_squarify(
-            std::vector<FBox<T>>& _out, 
-            const FBox<T>& _r,
+            std::vector<std::pair<int32_t, FBox<2, T>>>& _out, 
+            const FBox<2, T>& _r,
             std::deque<std::pair<int32_t, T>>& _children, 
             std::vector<std::pair<int32_t, T>>& _row, 
             const int32_t _dir,
@@ -307,9 +353,9 @@ namespace TP {
     }//Detail
 
     template<class T>
-    [[nodiscard]] std::vector<std::pair<int32_t, Detail::FBox<int32_t>>> 
+    [[nodiscard]] std::vector<std::pair<int32_t, Detail::FBox<2, int32_t>>> 
     squarify(
-        const Detail::FBox<T>& _bounds, 
+        const Detail::FBox<2, T>& _bounds, 
         const std::vector<std::pair<int32_t, Detail::Interval<T>>>& _boxes, 
         const uint64_t _seed
     );//squarify
@@ -654,7 +700,7 @@ void TP::Detail::run_impl(
 
             const glm::vec<3, T>& nextSize = next_set[i];
 
-            const FBox<T> aabb = FBox<T>{-nextSize, nextSize};
+            const FBox<3, T> aabb = FBox<3, T>{-nextSize, nextSize};
 
             const uint32_t n0 = uint32_t(std::round(aabb.GetExtent().x));
             const uint32_t n1 = uint32_t(std::round(aabb.GetExtent().y));
@@ -716,7 +762,7 @@ void TP::Detail::run_impl(
             next_q.push_front(next_set[i] * T(2.));
         }
 
-        const FBox<T> tar = FBox<T>{
+        const FBox<3, T> tar = FBox<3, T>{
             glm::vec<3, T>(r.n0 - r.ext.x, r.n1 - r.ext.y, r.h),
             glm::vec<3, T>(r.n0 + r.ext.x, r.n1 + r.ext.y, r.h + 2 * r.ext.z)};
 
@@ -864,7 +910,7 @@ std::vector<TP::Detail::Result<T>> TP::Detail::overlap_impl(
 template<class T>
 glm::mat<4, 4, T> TP::Detail::make_transform (
     const EAxisPerm _perm,
-    const FBox<T>& _target,
+    const FBox<3, T>& _target,
     const glm::vec<3, T>& _pivot_offset,
     const glm::vec<3, T>& _ext
 ) {
@@ -966,8 +1012,8 @@ glm::mat<4, 4, T> TP::Detail::make_transform (
 //-----------------------------------------
 
 template<class T>
-std::vector<std::pair<int32_t, TP::Detail::FBox<int32_t>>> TP::squarify(
-    const Detail::FBox<T>& _bounds, 
+std::vector<std::pair<int32_t, TP::Detail::FBox<2, int32_t>>> TP::squarify(
+    const Detail::FBox<2, T>& _bounds, 
     const std::vector<std::pair<int32_t, Detail::Interval<T>>>& _boxes,
     const uint64_t _seed
 ) {
@@ -986,29 +1032,32 @@ std::vector<std::pair<int32_t, TP::Detail::FBox<int32_t>>> TP::squarify(
     const T ifrac = vl / _bounds.getArea();
     const T frac = 1. / ifrac;
 
-    std::vector<std::pair<int32_t, T>>bx (_boxes);
-    std::sort(bx.begin(), bx.end(), [](const auto& _v1, const auto& _v2){ return _v1.second > _v2.second; });
+    std::sort(bxs.begin(), bxs.end(), [](const auto& _v1, const auto& _v2){ return _v1.second > _v2.second; });
     std::deque<std::pair<int32_t, T>> c;
-    for(const auto t : bx)
+    for(const auto t : bxs)
         c.push_back(t);
 
-    const auto ext = _bounds.getExtends();
-    const int32_t nd = int32_t(ext.x_ > ext.y_);
+    const auto sbounds = _bounds * ifrac;
+    const auto ext = sbounds.GetExtent();
+    const int32_t nd = int32_t(ext.x > ext.y);
 
-    std::vector<std::pair<int32_t, FBox<T>>> res;
-    Detail::impl_squarify(res, _bounds, c, std::vector<std::pair<int32_t, T>>(), nd, _bounds.minWidth());
+    std::vector<std::pair<int32_t, T>> row;
+    std::vector<std::pair<int32_t, FBox<2, T>>> res;
+    
+    Detail::impl_squarify(res, sbounds, c, row, nd, sbounds.minWidth());
 
-    const auto iquad = [](const auto FBox<T>& _b){
-        FBox<int32_t> out;
-        out.min_ = { (int32_t)std::round(_b.min_.x_), (int32_t)std::round(_b.min_.y_) };
-        out.max_ = { (int32_t)std::round(_b.max_.x_), (int32_t)std::round(_b.max_.y_) };
+    const auto iquad = [](const FBox<2, T>& _b){
+        FBox<2, int32_t> out;
+        out.min_ = { (int32_t)std::round(_b.min_.x), (int32_t)std::round(_b.min_.y) };
+        out.max_ = { (int32_t)std::round(_b.max_.x), (int32_t)std::round(_b.max_.y) };
         return out;
     };
 
-    std::vector<std::pair<int32_t, FBox<int32_t>>> out;
+    std::vector<std::pair<int32_t, FBox<2, int32_t>>> out;
     out.reserve(res.size());
+
     for(auto& r : res)
-        out.push_back( { r.id_, iquad(r.bounds_ * frac) });
+        out.push_back( { r.first, iquad(r.second * frac) });
 
     return out;
 
@@ -1016,8 +1065,8 @@ std::vector<std::pair<int32_t, TP::Detail::FBox<int32_t>>> TP::squarify(
 
 template<class T>
 void TP::Detail::impl_squarify(
-    std::vector<Detail::FBox<T>>& _out, 
-    const FBox<T>& _r,
+    std::vector<std::pair<int32_t, FBox<2, T>>>& _out, 
+    const FBox<2, T>& _r,
     std::deque<std::pair<int32_t, T>>& _c, 
     std::vector<std::pair<int32_t, T>>& _row, 
     const int32_t _dir,
@@ -1071,7 +1120,7 @@ void TP::Detail::impl_squarify(
 
         if(!last) _c.push_front({ idx, c });
 
-        const T vl = std::accumulate(_row.begin(), _row.end(), 0., [](const T _v1, const auto& _v2){
+        const T vl = std::accumulate(_row.begin(), _row.end(), T(0.), [](const T _v1, const auto& _v2){
             return _v1 + _v2.second;
         });
         const T ff = vl / _w;
@@ -1086,8 +1135,8 @@ void TP::Detail::impl_squarify(
                 for(const auto& [ii, t] : _row){
                     const T s = t * frac;
                     const glm::vec<2, T> ma = mi + glm::vec<2, T>{s, ff}; 
-                    _out.push_back( { ii, FBox<T>{ mi, ma } });
-                    mi = glm::vec<2, T>{ ma.x_, mi.y_ };
+                    _out.push_back( { ii, FBox<2, T>{ mi, ma } });
+                    mi = glm::vec<2, T>{ ma.x, mi.y };
                 }
             }
             break;
@@ -1096,8 +1145,8 @@ void TP::Detail::impl_squarify(
                 for(const auto& [ii, t] : _row){
                     const T s = t * frac;
                     const glm::vec<2, T> ma = mi + glm::vec<2, T>{ff, s}; 
-                    _out.push_back({ ii, FBox<T>{ mi, ma } });
-                    mi = glm::vec<2, T>{ mi.x_, ma.y_ };
+                    _out.push_back({ ii, FBox<2, T>{ mi, ma } });
+                    mi = glm::vec<2, T>{ mi.x, ma.y };
                 }
             }
             break;
@@ -1106,20 +1155,20 @@ void TP::Detail::impl_squarify(
         //next row
         _row.clear();
 
-        FBox<T> nr;
+        FBox<2, T> nr;
         nr.max_ = _r.max_;
         
         switch(_dir){
             case 0:
-                nr.min_ = { _r.min_.x_, _r.min_.y_ + ff };
+                nr.min_ = { _r.min_.x, _r.min_.y + ff };
             break;
             case 1:
-                nr.min_ = { _r.min_.x_ + ff, _r.min_.y_ };
+                nr.min_ = { _r.min_.x + ff, _r.min_.y };
             break;
         }
 
-        const auto ext = nr.getExtends();
-        const int32_t nd = int32_t(ext.x_ > ext.y_);
+        const auto ext = nr.GetExtent();
+        const int32_t nd = int32_t(ext.x > ext.y);
 
         if(!last) impl_squarify(_out, nr, _c, _row, nd, nr.minWidth());
     }

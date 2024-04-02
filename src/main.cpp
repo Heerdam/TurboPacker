@@ -91,8 +91,7 @@ int main() {
     const char* str_modes[] = { "Random", "List", "Validate" };
     int cur_mode = (int)conf.BoxType;
     uint64_t seedval = conf.Seed;
-    std::unique_ptr<std::future<std::unique_ptr<EvalRes>>> eval_prm = nullptr;
-    std::unique_ptr<EvalRes> eval_res = nullptr;
+    std::unique_ptr<Util::Detail::EvalRes> eval_res = nullptr;
 
     //-------------------------------------
 
@@ -243,21 +242,17 @@ int main() {
             ImGui::Checkbox("Enforce Misses", &conf.EnforceMisses);
         } else if(conf.BoxType == Detail::BoxGenerationType::VALIDATE) {
 
-            if(!eval_prm){
+            if(!eval_res){
                 if(ImGui::Button("Generate Problem", ImVec2(100, 30))) {
-                    eval_prm = std::make_unique<>(std::async([](ImVec2 _size, int32_t _count){}));
+                    eval_res = Util::create_ground_truth(glm::vec<2, int32_t>{(int32_t)conf.Bounds.x, (int32_t)conf.Bounds.y}, 12, conf.Seed);
                 }
-            } else {
-                ImGui::Text("Generating...");
-            }
-
-            if(eval_prm && eval_prm->valid()){
-                eval_res = eval_prm->get();    
-                eval_prm = nullptr;
-            }
+            } 
 
             if(eval_res){
-                ImGui::Image((void*)(intptr_t)eval_res->tex_.id, ImVec2(100, 100));
+                const float ar = conf.Bounds.y / conf.Bounds.x;
+                ImGui::Image((void*)&eval_res->tex_, 
+                    ImVec2(500, int32_t(500.f * ar))
+                );
             }
             
         }
@@ -269,10 +264,7 @@ int main() {
         EndDrawing();
 
     }
-
     ImGui_ImplRaylib_Shutdown();
-    ImGui::DestroyContext();
     CloseWindow();
-
     return 0;
 }

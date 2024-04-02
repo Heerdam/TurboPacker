@@ -15,7 +15,7 @@ namespace Util {
         struct EvalRes {
             glm::vec<2, int32_t> bounds_;
             std::vector<Color> colmap_;
-            std::vector<std::pair<int32_t, TP::Detail::FBox<int32_t>>> decomp_;
+            std::vector<std::pair<int32_t, TP::Detail::FBox<2, int32_t>>> decomp_;
             Texture2D tex_;
             TP::Detail::BoxList<float> boxlist_;
         };//EvalRes
@@ -23,7 +23,7 @@ namespace Util {
     }//Detail
 
     [[nodiscard]] inline std::unique_ptr<Detail::EvalRes> create_ground_truth(
-        const glm::vec<2, int32_t>& _bounds,
+        const glm::vec<2, int32_t> _bounds,
         const int32_t _num_boxes,
         const uint64_t _seed
     ) {
@@ -35,7 +35,7 @@ namespace Util {
 
         out->colmap_.resize(_num_boxes);
         for(int32_t i = 0; i < _num_boxes; ++i)
-            out->colmap_[i] = ColorFromHSV(i * (360.f / _num_boxes), 1.f, 1.f);
+            out->colmap_[i] = ColorFromHSV(i * (360.f / (_num_boxes + 1)), 1.f, 1.f);
 
         std::vector<std::pair<int32_t, TP::Detail::Interval<float>>> bxs;
         bxs.resize(_num_boxes);
@@ -44,30 +44,68 @@ namespace Util {
         for(int32_t i = 0; i < _num_boxes; ++i)
             bxs[i] = { i, {median * 0.5f, median * 1.5f} };
 
-        out->decomp_ = TP::squarify(TP::Detail::FBox<float>{ {0.f, 0.f, 0.f}, { float(_bounds.x), float(_bounds.y), 0.f } }, bxs, rng());
+        out->decomp_ = TP::squarify(TP::Detail::FBox<2, float>{ {0.f, 0.f}, { float(_bounds.x), float(_bounds.y) } }, bxs, rng());
 
         std::vector<unsigned char> img_data;
-        img_data.resize(3 * _bounds.x * _bounds.y);
+        img_data.resize(4 * _bounds.x * _bounds.y, 0);
 
         for(const auto[idx, b] : out->decomp_){
 
+            //fill
             for(size_t y = b.min_.y; y < b.max_.y; ++y){
                 for(size_t x = b.min_.x; x < b.max_.x; ++x){
                     const size_t i = x + y * _bounds.x;
-                    img_data[3*i] = out->colmap_[idx].r;
-                    img_data[3*i + 1] = out->colmap_[idx].g;
-                    img_data[3*i + 1] = out->colmap_[idx].b;
-
+                    if(4*i >= img_data.size()) continue;
+                    img_data[4*i] = out->colmap_[idx].r;
+                    img_data[4*i + 1] = out->colmap_[idx].g;
+                    img_data[4*i + 2] = out->colmap_[idx].b;
+                    img_data[4*i + 3] = 255;
                 }
+            }
+
+            //border y
+            for(size_t y = b.min_.y; y < b.max_.y; ++y){
+                const size_t i1 = b.min_.x + y * _bounds.x;
+                const size_t i2 = (b.max_.x - 1) + y * _bounds.x;
+                if(4*i1 >= img_data.size()) continue;
+                if(4*i2 >= img_data.size()) continue;
+                img_data[4*i1] = 0;
+                img_data[4*i1 + 1] = 0;
+                img_data[4*i1 + 2] = 0;
+                img_data[4*i1 + 3] = 255;
+
+                img_data[4*i2] = 0;
+                img_data[4*i2 + 1] = 0;
+                img_data[4*i2 + 2] = 0;
+                img_data[4*i2 + 3] = 255;
+            }
+
+            //border x
+            for(size_t x = b.min_.x; x < b.max_.x; ++x){
+                const size_t i1 = x + b.min_.y * _bounds.x;
+                const size_t i2 = x + (b.max_.y - 1) * _bounds.x;
+                if(4*i1 >= img_data.size()) continue;
+                if(4*i2 >= img_data.size()) continue;
+                img_data[4*i1] = 0;
+                img_data[4*i1 + 1] = 0;
+                img_data[4*i1 + 2] = 0;
+                img_data[4*i1 + 3] = 255;
+
+                img_data[4*i2] = 0;
+                img_data[4*i2 + 1] = 0;
+                img_data[4*i2 + 2] = 0;
+                img_data[4*i2 + 3] = 255;
             }
 
         }
 
         Image img;
+        img.mipmaps = 1;
         img.width = _bounds.x;
         img.height = _bounds.y;
-        img.format = PixelFormat::PIXELFORMAT_UNCOMPRESSED_R8G8B8;
+        img.format = PixelFormat::PIXELFORMAT_UNCOMPRESSED_R8G8B8A8;
         img.data = img_data.data();
+
         out->tex_ = LoadTextureFromImage(img);
 
         return out;
