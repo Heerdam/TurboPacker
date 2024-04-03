@@ -49,7 +49,7 @@ namespace TP {
     //----------------------
 
     template<typename T, template<typename> class CF, typename H_T, typename R_T, uint32_t BS, typename HA>
-    [[nodiscard]] Detail::Promise<T, H_T, R_T, BS, HA> solve(const Config<T, CF, H_T, R_T, BS, HA> _config);
+    [[nodiscard]] Detail::Promise<T, H_T, R_T, BS, HA> solve(Config<T, CF, H_T, R_T, BS, HA>& _config);
 
     namespace Detail {
 
@@ -233,6 +233,8 @@ namespace TP {
             int32_t N_;
             T tot_vol_;
 
+            uint64_t seed_;
+
             std::condition_variable cv_;
 
             std::chrono::high_resolution_clock::time_point time_start_;
@@ -261,7 +263,7 @@ namespace TP {
             Promise() = default;
             //-------------
             template<typename T_, template<typename> class CF_, typename H_T_, typename R_T_, uint32_t BS_, typename HA_>
-            friend Promise<T_, H_T_, R_T_, BS_, HA_> TP::solve(const ::TP::Config<T_, CF_, H_T_, R_T_, BS_, HA_> _conf);
+            friend Promise<T_, H_T_, R_T_, BS_, HA_> TP::solve(::TP::Config<T_, CF_, H_T_, R_T_, BS_, HA_>& _conf);
         
         public:
 
@@ -301,6 +303,9 @@ namespace TP {
 
             //thread safe! seconds since start
             [[nodiscard]] double getTime() const;
+
+            //thread safe!
+            [[nodiscard]] uint64_t getSeed() const;
 
         };//Promise
 
@@ -463,13 +468,18 @@ namespace TP {
         //if it should enforce emptry tries. if false the solver runs until the list is empty [default: false]
         bool EnforceMisses = false;
 
+        //--------------------------
+
+        //How many boxes the ground truth should contain [default: 12]
+        uint32_t EvalBoxCount = 12;
+
     };//Config
 
     namespace Detail {
 
         template<typename T, template<typename> class CF, typename H_T, typename R_T, uint32_t BS, typename HA>
         void run_impl(
-            Config<T, CF, H_T, R_T, BS, HA> _conf,
+            const Config<T, CF, H_T, R_T, BS, HA> _conf,
             SolverContext<T, H_T, R_T, BS, HA>* _cont
         );//run_impl
 
@@ -564,10 +574,16 @@ double TP::Detail::Promise<T, H_T, R_T, BS, HA>::getTime() const {
     return ee.count();
 }//TP::Detail::Promise::getTime
 
+template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
+uint64_t TP::Detail::Promise<T, H_T, R_T, BS, HA>::getSeed() const {
+    assert(context_);
+    return context_->seed_;
+}//TP::Detail::Promise::getTime
+
 //------------------------------
 
 template<typename T, template<typename> class CF, typename H_T, typename R_T, uint32_t BS, typename HA>
-TP::Detail::Promise<T, H_T, R_T, BS, HA> TP::solve(const TP::Config<T, CF, H_T, R_T, BS, HA> _conf) {
+TP::Detail::Promise<T, H_T, R_T, BS, HA> TP::solve(TP::Config<T, CF, H_T, R_T, BS, HA>& _conf) {
 
     using namespace TP;
     static_assert(std::is_floating_point_v<T>, "T needs to be floating point type!");
@@ -577,8 +593,10 @@ TP::Detail::Promise<T, H_T, R_T, BS, HA> TP::solve(const TP::Config<T, CF, H_T, 
     out.context_ = std::make_unique<Detail::SolverContext<T, H_T, R_T, BS, HA>>(_conf.NumThreads);
     auto c = out.context_.get();
 
+    std::random_device rd;
+    _conf.Seed = c->seed_ = _conf.UseRandomSeed ? rd() : _conf.Seed;
     c->isDone_ = false;
-    c->mt_ = std::thread(Detail::run_impl<T, CF, H_T, R_T, BS, HA>, std::ref(_conf), c);
+    c->mt_ = std::thread(Detail::run_impl<T, CF, H_T, R_T, BS, HA>, _conf, c);
 
     return out;    
 
@@ -588,7 +606,7 @@ TP::Detail::Promise<T, H_T, R_T, BS, HA> TP::solve(const TP::Config<T, CF, H_T, 
 
 template<typename T, template<typename> class CF, typename H_T, typename R_T, uint32_t BS, typename HA>
 void TP::Detail::run_impl(
-    Config<T, CF, H_T, R_T, BS, HA> _conf,
+    const Config<T, CF, H_T, R_T, BS, HA> _conf,
     SolverContext<T, H_T, R_T, BS, HA>* _cont
 ) {
 
@@ -637,7 +655,7 @@ void TP::Detail::run_impl(
     uint32_t et = 0;
 
     std::random_device rd;
-    int64_t Seed = _conf.UseRandomSeed ? rd() : _conf.Seed;
+    const int64_t Seed = _cont->seed_;
     Rand g(Seed);
     DistD dist = DistD(_conf.MinBoxVolume, _conf.MaxBoxVolume);
 

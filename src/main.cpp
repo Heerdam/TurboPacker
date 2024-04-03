@@ -50,7 +50,7 @@ int main() {
     Config<float, CostFunction::CF_Krass> conf;
     conf.MultiThreading = true;
     conf.NumThreads = 8;
-    conf.UseRandomSeed = false;
+    conf.UseRandomSeed = true;
     conf.Seed = 12341234;
     conf.Bounds = {80., 120.}; 
     conf.Height = 120.;
@@ -97,36 +97,9 @@ int main() {
 
     while (!WindowShouldClose()) {
 
-        camera.update(GetFrameTime());
         ImGui_ImplRaylib_ProcessEvents();
-
+       
         //------------------------
-
-        BeginDrawing();
-        ClearBackground(RAYWHITE);
-
-        BeginMode3D(camera);
-        DrawGrid(100, 5.0f);
-        const auto ext = conf.Bounds * 0.5f;
-        DrawCubeWiresV(Vector3{ext.y, conf.Height * 0.5f, ext.x}, Vector3{conf.Bounds.y, (float)conf.Height, conf.Bounds.x}, PURPLE);
-        DrawLine3D(Vector3{0, 0, 0}, Vector3{(float)conf.Height, 0, 0}, RED);
-        DrawLine3D(Vector3{0, 0, 0}, Vector3{0, (float)conf.Height, 0}, GREEN);
-        DrawLine3D(Vector3{0, 0, 0}, Vector3{0, 0, (float)conf.Height}, BLUE);
-
-        if(pr){
-            if(cc++%30 == 0)
-                b = pr->data_cpy();
-
-            for (const auto& tr : b) {
-                const Vector3 ns = {glm::length(glm::vec3(tr[0])), glm::length(glm::vec3(tr[1])), glm::length(glm::vec3(tr[2])) };
-                const double temp = 1. - 1. / (conf.MaxBoxVolume - conf.MinBoxVolume) * ((ns.x * ns.y * ns.z) - conf.MinBoxVolume);
-                const auto trans = glm::vec<3, float>(tr[3]);
-                DrawCubeV(Vector3{ trans.x, trans.z, trans.y }, Vector3{ ns.x, ns.z, ns.y }, col(temp));
-                DrawCubeWiresV(Vector3{ trans.x, trans.z, trans.y }, Vector3{ ns.x, ns.z, ns.y }, BLACK);
-            }
-        }
-
-        EndMode3D();
 
         ImGui_ImplRaylib_NewFrame();
         ImGui::NewFrame();
@@ -165,7 +138,26 @@ int main() {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.f, 1.f, 0.f, 1.f));
             if(ImGui::Button("Pack", ImVec2(100, 30))) {
-                pr = std::make_unique<Prmise>(solve(conf));
+
+                
+                if(conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res != nullptr) {
+                    Config<float, CostFunction::CF_Krass> cc = conf;
+                    cc.BoxType = Detail::BoxGenerationType::LIST;
+
+                    std::sort(eval_res->decomp_.begin(), eval_res->decomp_.end(), [](const auto& _v1, const auto& _v2){
+                        return _v1.first < _v2.first;
+                    });
+
+                    Detail::BoxList<float> list;
+                    list.ShuffleBoxes = true;
+                    for(const auto& [id, bx] : eval_res->decomp_){
+                        list.List.push_back( { {bx.getSize().x, bx.getSize().y, conf.Height - 1.f}, 1});
+                    }
+                    cc.BoxList = list;
+
+                    pr = std::make_unique<Prmise>(solve(cc));
+                } else  pr = std::make_unique<Prmise>(solve(conf));
+               
             }
             ImGui::PopStyleColor(2);
         }
@@ -242,23 +234,69 @@ int main() {
             ImGui::Checkbox("Enforce Misses", &conf.EnforceMisses);
         } else if(conf.BoxType == Detail::BoxGenerationType::VALIDATE) {
 
-            if(!eval_res){
-                if(ImGui::Button("Generate Problem", ImVec2(100, 30))) {
-                    eval_res = Util::create_ground_truth(glm::vec<2, int32_t>{(int32_t)conf.Bounds.x, (int32_t)conf.Bounds.y}, 12, conf.Seed);
+            ImGui::InputInt("Box Count", (int32_t*)&conf.EvalBoxCount);
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.f, 1.f, 0.f, 1.f));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
+            if(ImGui::Button("Evaluate\nProblem", ImVec2(100, 60))) {
+                if(conf.UseRandomSeed){
+                    conf.Seed = std::random_device()();
                 }
-            } 
+                eval_res = Util::create_ground_truth(glm::vec<2, int32_t>{(int32_t)conf.Bounds.x, (int32_t)conf.Bounds.y}, conf.EvalBoxCount, conf.Seed);
+            }
+
+            ImGui::PopStyleColor(2);
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.f, 0.f, 0.0f, 1.f));
+            if(ImGui::Button("Reset", ImVec2(100, 60))) {
+                eval_res = nullptr;
+            }
+            ImGui::PopStyleColor();
 
             if(eval_res){
+                const float ww = (ImGui::GetContentRegionAvail().x - 200) * 0.5f;
                 const float ar = conf.Bounds.y / conf.Bounds.x;
+                ImGui::Dummy({0, 10});
+                ImGui::SetCursorPosX(ww);
                 ImGui::Image((void*)&eval_res->tex_, 
-                    ImVec2(500, int32_t(500.f * ar))
+                    ImVec2(200, int32_t(200.f * ar))
                 );
             }
             
         }
+
+        if(!ImGui::IsWindowHovered()) camera.update(GetFrameTime());
        
         ImGui::End();
         ImGui::Render();
+        
+        //------------------------
+
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
+
+        BeginMode3D(camera);
+        DrawGrid(100, 5.0f);
+        const auto ext = conf.Bounds * 0.5f;
+        DrawCubeWiresV(Vector3{ext.y, conf.Height * 0.5f, ext.x}, Vector3{conf.Bounds.y, (float)conf.Height, conf.Bounds.x}, PURPLE);
+        DrawLine3D(Vector3{0, 0, 0}, Vector3{(float)conf.Height, 0, 0}, RED);
+        DrawLine3D(Vector3{0, 0, 0}, Vector3{0, (float)conf.Height, 0}, GREEN);
+        DrawLine3D(Vector3{0, 0, 0}, Vector3{0, 0, (float)conf.Height}, BLUE);
+
+        if(pr){
+            if(cc++%30 == 0)
+                b = pr->data_cpy();
+
+            for (const auto& tr : b) {
+                const Vector3 ns = {glm::length(glm::vec3(tr[0])), glm::length(glm::vec3(tr[1])), glm::length(glm::vec3(tr[2])) };
+                const double temp = 1. - 1. / (conf.MaxBoxVolume - conf.MinBoxVolume) * ((ns.x * ns.y * ns.z) - conf.MinBoxVolume);
+                const auto trans = glm::vec<3, float>(tr[3]);
+                DrawCubeV(Vector3{ trans.x, trans.z, trans.y }, Vector3{ ns.x, ns.z, ns.y }, col(temp));
+                DrawCubeWiresV(Vector3{ trans.x, trans.z, trans.y }, Vector3{ ns.x, ns.z, ns.y }, BLACK);
+            }
+        }
+
+        EndMode3D();
+      
         ImGui_ImplRaylib_RenderDrawData(ImGui::GetDrawData());
         DrawFPS(GetScreenWidth() - 100, 5);
         EndDrawing();
