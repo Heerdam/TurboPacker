@@ -46,6 +46,19 @@ namespace TP {
     template<class, template<typename> class, class, class, uint32_t, class>
     struct Config;
 
+    //-------------------------
+
+    constexpr uint32_t PF_Z_XY = 0x1;
+    constexpr uint32_t PF_Z_YX = 0x2;
+
+    constexpr uint32_t PF_Y_XZ = 0x4;
+    constexpr uint32_t PF_Y_ZX = 0x8;
+
+    constexpr uint32_t PF_X_YZ = 0x10;
+    constexpr uint32_t PF_X_ZY = 0x20;
+
+    constexpr uint32_t PF_ALL = PF_Z_XY | PF_Z_YX | PF_Y_XZ | PF_Y_ZX | PF_X_YZ | PF_X_ZY;
+
     //----------------------
 
     template<typename T, template<typename> class CF, typename H_T, typename R_T, uint32_t BS, typename HA>
@@ -319,14 +332,15 @@ namespace TP {
 
         template<class T>
         struct BoxEntry {
-            glm::vec<3, T> Size;
-            uint32_t Count;
+            glm::vec<3, T> size_;
+            uint32_t count_ = 0;
+            uint32_t perms_ = 0x3F; //permutations
         };//BoxEntry
 
         template<class T>
         struct BoxList {
-            std::vector<BoxEntry<T>> List;
-            bool ShuffleBoxes = false;
+            std::vector<BoxEntry<T>> list_;
+            bool shuffle_boxes_ = false;
         };//BoxList
 
         //-------------------------
@@ -450,6 +464,8 @@ namespace TP {
         uint32_t LookAheadSize = 1;
 
         //--------------------------
+
+        uint32_t AllowedPermutations = PF_ALL;
 
         //if the random boxes should be cubes [default: true]
         bool CubeRandomBoxes = true;
@@ -669,17 +685,19 @@ void TP::Detail::run_impl(
         return { std::max(T(2.), d1), std::max(T(2.), d2), std::max(T(2.), d3) };
     };
 
-    std::vector<glm::vec<3, T>> next_set(_conf.LookAheadSize);
-    std::deque<glm::vec<3, T>> next_q;
+    const uint32_t dp = _conf.AllowedPermutations;
+
+    std::vector<std::pair<glm::vec<3, T>, uint32_t>> next_set(_conf.LookAheadSize);
+    std::deque<std::pair<glm::vec<3, T>, uint32_t>> next_q; //<bounds, perms>
 
     if (_conf.BoxType == BoxGenerationType::LIST) {
         const BoxList<T>& list = _conf.BoxList;
-        std::vector<glm::vec<3, T>> tmp;
-        for (const BoxEntry<T>& p : list.List) {
-            for (uint32_t i = 0; i < p.Count; ++i)
-                tmp.push_back(p.Size);
+        std::vector<std::pair<glm::vec<3, T>, uint32_t>> tmp;
+        for (const BoxEntry<T>& p : list.list_) {
+            for (uint32_t i = 0; i < p.count_; ++i)
+                tmp.push_back({ p.size_, p.perms_ });
         }
-        if (list.ShuffleBoxes)
+        if (list.shuffle_boxes_)
             std::shuffle(tmp.begin(), tmp.end(), g);
         for (const auto& f : tmp)
             next_q.push_back(f);
@@ -700,14 +718,15 @@ void TP::Detail::run_impl(
             case BoxGenerationType::RANDOM:
             {
                 for (uint32_t i = 0; i < _conf.LookAheadSize; ++i)
-                    next_set.push_back(rbox(dist(g), _conf.CubeRandomBoxes));
+                    next_set.push_back({ rbox(dist(g), _conf.CubeRandomBoxes), dp });
             }
             break;
             case BoxGenerationType::LIST:
             {
                 for (uint32_t i = 0; i < _conf.LookAheadSize; ++i) {
                     if (next_q.empty()) break;
-                    next_set.push_back(next_q.front() * T(0.5));
+                    const auto& [bb, pp] = next_q.front();
+                    next_set.push_back({ bb * T(0.5), pp });
                     next_q.pop_front();
                 }
             }
@@ -716,7 +735,7 @@ void TP::Detail::run_impl(
         
         for (size_t i = 0; i < next_set.size(); ++i) {
 
-            const glm::vec<3, T>& nextSize = next_set[i];
+            const auto& [nextSize, nextPerm] = next_set[i];
 
             const FBox<3, T> aabb = FBox<3, T>{-nextSize, nextSize};
 
@@ -725,27 +744,27 @@ void TP::Detail::run_impl(
             const uint32_t n2 = uint32_t(std::round(aabb.GetExtent().z));
             
             //Z_XY
-            dispatch_impl(_conf, _cont, res, mut, minc, i,
+            if(nextPerm & PF_Z_XY) dispatch_impl(_conf, _cont, res, mut, minc, i,
                 n0, n1, nextSize, n2, EAxisPerm::Z_XY_0);
 
             //Z_YX
-            dispatch_impl(_conf, _cont, res, mut, minc, i,
+            if(nextPerm & PF_Z_YX) dispatch_impl(_conf, _cont, res, mut, minc, i,
                 n1, n0, nextSize, n2, EAxisPerm::Z_XY_1);
 
             //Y_XZ
-            dispatch_impl(_conf, _cont, res, mut, minc, i,
+            if(nextPerm & PF_Y_XZ) dispatch_impl(_conf, _cont, res, mut, minc, i,
                 n0, n2, nextSize, n1, EAxisPerm::Y_XZ_0);
 
             //Y_ZX
-            dispatch_impl(_conf, _cont, res, mut, minc, i,
+            if(nextPerm & PF_Y_ZX) dispatch_impl(_conf, _cont, res, mut, minc, i,
                 n2, n0, nextSize, n1,  EAxisPerm::Y_XZ_1);
 
             //X_YZ
-            dispatch_impl(_conf, _cont, res, mut, minc, i,
+            if(nextPerm & PF_X_YZ) dispatch_impl(_conf, _cont, res, mut, minc, i,
                 n1, n2, nextSize, n0, EAxisPerm::X_YZ_0);
 
             //X_ZY
-            dispatch_impl(_conf, _cont, res, mut, minc, i,
+            if(nextPerm & PF_X_ZY) dispatch_impl(_conf, _cont, res, mut, minc, i,
                 n2, n1, nextSize, n0, EAxisPerm::X_YZ_1);
 
             if (_cont->isDone_) break;
@@ -777,7 +796,8 @@ void TP::Detail::run_impl(
 
         for (size_t i = 0; i < next_set.size(); ++i) {
             if (i == r.set_index_) continue;
-            next_q.push_front(next_set[i] * T(2.));
+            const auto& [ns, np] = next_set[i];
+            next_q.push_front({ ns * T(2.), np} );
         }
 
         const FBox<3, T> tar = FBox<3, T>{

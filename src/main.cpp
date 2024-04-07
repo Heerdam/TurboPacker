@@ -24,7 +24,7 @@ int main() {
 
     using namespace TP;
 
-    InitWindow(1920, 1080, "TurboPacker");
+    InitWindow(1920 / 2, 1080 / 2, "TurboPacker");
 
     const auto scale = GetWindowScaleDPI();
 
@@ -39,13 +39,13 @@ int main() {
     Imgui_ImplRaylib_BuildFontAtlas();
 
     Detail::BoxList<float> postpacs;
-    postpacs.ShuffleBoxes = true;
-    postpacs.List.emplace_back(glm::vec3{28.f, 17.4f, 10.f}, 100);
-    postpacs.List.emplace_back(glm::vec3{35.5f, 24.f, 12.5f}, 100);
-    postpacs.List.emplace_back(glm::vec3{38.f, 35.f, 16.9f}, 100);
-    postpacs.List.emplace_back(glm::vec3{53.5f, 28.5f, 16.5f}, 100);
-    postpacs.List.emplace_back(glm::vec3{39.0f, 13.0f, 11.0f}, 100);
-    postpacs.List.emplace_back(glm::vec3{55.5f, 37.0f, 6.0f}, 100);
+    postpacs.shuffle_boxes_ = true;
+    postpacs.list_.emplace_back(glm::vec3{28.f, 17.4f, 10.f}, 100);
+    postpacs.list_.emplace_back(glm::vec3{35.5f, 24.f, 12.5f}, 100);
+    postpacs.list_.emplace_back(glm::vec3{38.f, 35.f, 16.9f}, 100);
+    postpacs.list_.emplace_back(glm::vec3{53.5f, 28.5f, 16.5f}, 100);
+    postpacs.list_.emplace_back(glm::vec3{39.0f, 13.0f, 11.0f}, 100);
+    postpacs.list_.emplace_back(glm::vec3{55.5f, 37.0f, 6.0f}, 100);
 
     Config<float, CostFunction::CF_Krass> conf;
     conf.MultiThreading = true;
@@ -103,7 +103,7 @@ int main() {
 
         ImGui_ImplRaylib_NewFrame();
         ImGui::NewFrame();
-        ImGui::SetNextWindowSize(ImVec2(475, 700), ImGuiCond_FirstUseEver);
+        //ImGui::SetNextWindowSize(ImVec2(475, 700), ImGuiCond_FirstUseEver);
         ImGui::Begin("PackerWidget", (bool*)nullptr, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize);
 
         if(pr) {
@@ -149,9 +149,9 @@ int main() {
                     });
 
                     Detail::BoxList<float> list;
-                    list.ShuffleBoxes = true;
+                    list.shuffle_boxes_ = true;
                     for(const auto& [id, bx] : eval_res->decomp_){
-                        list.List.push_back( { {bx.getSize().x, bx.getSize().y, conf.Height - 1.f}, 1});
+                        list.list_.push_back( { {bx.getSize().x, bx.getSize().y, conf.Height - 1.f}, 1, TP::PF_Y_XZ | TP::PF_Y_ZX });
                     }
                     cc.BoxList = list;
 
