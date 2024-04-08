@@ -20,9 +20,9 @@ include(FetchContent)
 
 add_library( TP INTERFACE )
 
-set(BUILD_TEST TRUE)
+option(BUILD_AS_LIBRARY "Use as library" FALSE)
 
-if (BUILD_TEST)
+if (NOT BUILD_AS_LIBRARY)
 
 	add_executable( TPtest src/main.cpp )
 
