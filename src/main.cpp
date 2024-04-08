@@ -115,7 +115,9 @@ int main() {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.f, 1.f, 0.f, 1.f));
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
                 if(ImGui::Button("Pack", ImVec2(100, 30))) {
-                    if(conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res != nullptr) {
+                    if(conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res == nullptr) {
+                        std::cerr << std::format("Generate a solution first!") << std::endl;
+                    } else if(conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res != nullptr) {
                         Config<float, CostFunction::CF_Krass> cc = conf;
                         cc.BoxType = Detail::BoxGenerationType::LIST;
 
@@ -153,8 +155,9 @@ int main() {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.f, 1.f, 0.f, 1.f));
             if(ImGui::Button("Pack", ImVec2(100, 30))) {
 
-                
-                if(conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res != nullptr) {
+                if(conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res == nullptr) {
+                    std::cerr << std::format("Generate a solution first!") << std::endl;
+                } else if(conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res != nullptr) {
                     Config<float, CostFunction::CF_Krass> cc = conf;
                     cc.BoxType = Detail::BoxGenerationType::LIST;
 

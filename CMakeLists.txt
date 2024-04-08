@@ -115,7 +115,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glm)
 
-if (BUILD_TEST)
+if (NOT BUILD_AS_LIBRARY)
 	target_include_directories(TPtest PUBLIC include )
 	target_link_libraries(TPtest MQT2 glm::glm raylib imgui rimgui lodepng)
 endif()
