@@ -24,7 +24,7 @@ int main() {
 
     using namespace TP;
 
-    InitWindow(1920 / 2, 1080 / 2, "TurboPacker");
+    InitWindow(1620, 880, "TurboPacker");
 
     const auto scale = GetWindowScaleDPI();
 
@@ -49,11 +49,11 @@ int main() {
 
     Config<float, CostFunction::CF_Krass> conf;
     conf.MultiThreading = true;
-    conf.NumThreads = 8;
+    conf.NumThreads = 4;
     conf.UseRandomSeed = true;
     conf.Seed = 12341234;
     conf.Bounds = {80., 120.}; 
-    conf.Height = 120.;
+    conf.Height = 20.;
     conf.BoxType = Detail::BoxGenerationType::VALIDATE;
     conf.CubeRandomBoxes = false;
     conf.LookAheadSize = 50;
@@ -74,7 +74,7 @@ int main() {
     camera.tiltAngle = -65.f;
     //-------------------------------------
 
-    std::vector<glm::mat<4, 4, float>> b;
+    std::vector<std::pair<int32_t, glm::mat<4, 4, float>>> b;
     int32_t cc = 0;
 
     const auto col = [&](float _scalar) -> Color {
@@ -83,10 +83,8 @@ int main() {
         const uint8_t R = (uint8_t)(255 * RedSclr);
         const uint8_t G = (uint8_t)(255 * GreenSclr);
         const uint8_t B = 0;
-        return Color(R, G, B, 255);
+        return Color(R, G, B, 175);
     };
-
-    
 
     const char* str_modes[] = { "Random", "List", "Validate" };
     int cur_mode = (int)conf.BoxType;
@@ -117,7 +115,23 @@ int main() {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.f, 1.f, 0.f, 1.f));
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
                 if(ImGui::Button("Pack", ImVec2(100, 30))) {
-                    pr = std::make_unique<Prmise>(solve(conf));
+                    if(conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res != nullptr) {
+                        Config<float, CostFunction::CF_Krass> cc = conf;
+                        cc.BoxType = Detail::BoxGenerationType::LIST;
+
+                        std::sort(eval_res->decomp_.begin(), eval_res->decomp_.end(), [](const auto& _v1, const auto& _v2){
+                            return _v1.first < _v2.first;
+                        });
+
+                        Detail::BoxList<float> list;
+                        list.shuffle_boxes_ = true;
+                        for(const auto& [id, bx] : eval_res->decomp_){
+                            list.list_.push_back( { {bx.getSize().x, conf.Height - 2.f, bx.getSize().y }, 1, TP::PF_Y_XZ | TP::PF_Y_ZX });
+                        }
+                        cc.BoxList = list;
+
+                        pr = std::make_unique<Prmise>(solve(cc));
+                    } else pr = std::make_unique<Prmise>(solve(conf));
                 }
                 ImGui::PopStyleColor(2);
             } else {
@@ -151,12 +165,12 @@ int main() {
                     Detail::BoxList<float> list;
                     list.shuffle_boxes_ = true;
                     for(const auto& [id, bx] : eval_res->decomp_){
-                        list.list_.push_back( { {bx.getSize().x, bx.getSize().y, conf.Height - 1.f}, 1, TP::PF_Y_XZ | TP::PF_Y_ZX });
+                        list.list_.push_back( { {bx.getSize().x, conf.Height - 2.f, bx.getSize().y }, 1, TP::PF_Y_XZ | TP::PF_Y_ZX });
                     }
                     cc.BoxList = list;
 
                     pr = std::make_unique<Prmise>(solve(cc));
-                } else  pr = std::make_unique<Prmise>(solve(conf));
+                } else pr = std::make_unique<Prmise>(solve(conf));
                
             }
             ImGui::PopStyleColor(2);
@@ -179,6 +193,8 @@ int main() {
                         case 1: conf.BoxType = Detail::BoxGenerationType::LIST; break;
                         case 2: conf.BoxType = Detail::BoxGenerationType::VALIDATE; break;
                     }
+                    b.clear();
+                    pr = nullptr;
                 } 
                 if(i == cur_mode) ImGui::SetItemDefaultFocus();
             }
@@ -237,7 +253,7 @@ int main() {
             ImGui::InputInt("Box Count", (int32_t*)&conf.EvalBoxCount);
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.f, 1.f, 0.f, 1.f));
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
-            if(ImGui::Button("Evaluate\nProblem", ImVec2(100, 60))) {
+            if(ImGui::Button("Generate\nProblem", ImVec2(100, 60))) {
                 if(conf.UseRandomSeed){
                     conf.Seed = std::random_device()();
                 }
@@ -286,11 +302,14 @@ int main() {
             if(cc++%30 == 0)
                 b = pr->data_cpy();
 
-            for (const auto& tr : b) {
+            for (size_t i = 0; i < b.size(); ++i) {
+                const auto&[id, tr] = b[i];      
                 const Vector3 ns = {glm::length(glm::vec3(tr[0])), glm::length(glm::vec3(tr[1])), glm::length(glm::vec3(tr[2])) };
                 const double temp = 1. - 1. / (conf.MaxBoxVolume - conf.MinBoxVolume) * ((ns.x * ns.y * ns.z) - conf.MinBoxVolume);
                 const auto trans = glm::vec<3, float>(tr[3]);
-                DrawCubeV(Vector3{ trans.x, trans.z, trans.y }, Vector3{ ns.x, ns.z, ns.y }, col(temp));
+                const Color cc = conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res ? 
+                    Color(eval_res->colmap_[id].r, eval_res->colmap_[id].g,eval_res->colmap_[id].b, 175) : col(temp);
+                DrawCubeV(Vector3{ trans.x, trans.z, trans.y }, Vector3{ ns.x, ns.z, ns.y }, cc);
                 DrawCubeWiresV(Vector3{ trans.x, trans.z, trans.y }, Vector3{ ns.x, ns.z, ns.y }, BLACK);
             }
         }

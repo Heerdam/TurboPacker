@@ -240,7 +240,7 @@ namespace TP {
             std::thread mt_;
             TaskGraph tg_;
 
-            std::vector<glm::mat<4, 4, T>> data_;
+            std::vector<std::pair<int32_t, glm::mat<4, 4, T>>> data_;
             std::mutex m_data;
 
             int32_t N_;
@@ -294,13 +294,13 @@ namespace TP {
             void stop();
 
             //NOT thread safe! only call when isDone() returns true!
-            [[nodiscard]] const std::vector<glm::mat<4, 4, T>>& data() const;
+            [[nodiscard]] const std::vector<std::pair<int32_t, glm::mat<4, 4, T>>>& data() const;
 
             //NOT thread safe! only call when isDone() returns true!
-            [[nodiscard]] std::vector<glm::mat<4, 4, T>>& data();
+            [[nodiscard]] std::vector<std::pair<int32_t, glm::mat<4, 4, T>>>& data();
 
             //thread safe! returns a copy of the data
-            [[nodiscard]] std::vector<glm::mat<4, 4, T>> data_cpy();
+            [[nodiscard]] std::vector<std::pair<int32_t, glm::mat<4, 4, T>>> data_cpy();
 
             //thread safe!
             [[nodiscard]] bool isDone() const;
@@ -346,6 +346,7 @@ namespace TP {
         //-------------------------
         template<class T>
         struct Result {
+            int32_t id_;
             bool isRandomBox;
             T weight;
             uint32_t n0, n1, h;
@@ -517,7 +518,7 @@ namespace TP {
             std::atomic<double>& _minc,
             const size_t _set_index,
             const uint32_t _n0, const uint32_t _n1,
-            const glm::vec<3, T>& _ext_org,
+            const glm::vec<3, T>& _ext_org, const int32_t _id,
             const uint32_t _h, EAxisPerm _perm
         );//dispatch_impl       
 
@@ -540,19 +541,19 @@ void TP::Detail::Promise<T, H_T, R_T, BS, HA>::stop() {
 }//TP::Detail::Promise::wait
 
 template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
-const std::vector<glm::mat<4, 4, T>>& TP::Detail::Promise<T, H_T, R_T, BS, HA>::data() const {
+const std::vector<std::pair<int32_t, glm::mat<4, 4, T>>>& TP::Detail::Promise<T, H_T, R_T, BS, HA>::data() const {
     assert(context_);
     return context_->data_;
 }//TP::Detail::Promise::data
 
 template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
-std::vector<glm::mat<4, 4, T>>& TP::Detail::Promise<T, H_T, R_T, BS, HA>::data() {
+std::vector<std::pair<int32_t, glm::mat<4, 4, T>>>& TP::Detail::Promise<T, H_T, R_T, BS, HA>::data() {
     assert(context_);
     return context_->data_;
 }//TP::Detail::Promise::data
 
 template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
-std::vector<glm::mat<4, 4, T>> TP::Detail::Promise<T, H_T, R_T, BS, HA>::data_cpy() {
+std::vector<std::pair<int32_t, glm::mat<4, 4, T>>> TP::Detail::Promise<T, H_T, R_T, BS, HA>::data_cpy() {
     assert(context_);
     std::lock_guard<std::mutex> lock(context_->m_data);
     return context_->data_;
@@ -687,15 +688,16 @@ void TP::Detail::run_impl(
 
     const uint32_t dp = _conf.AllowedPermutations;
 
-    std::vector<std::pair<glm::vec<3, T>, uint32_t>> next_set(_conf.LookAheadSize);
-    std::deque<std::pair<glm::vec<3, T>, uint32_t>> next_q; //<bounds, perms>
+    std::vector<std::tuple<glm::vec<3, T>, uint32_t, int32_t>> next_set(_conf.LookAheadSize);
+    std::deque<std::tuple<glm::vec<3, T>, uint32_t, int32_t>> next_q; //<bounds, perms, id>
 
     if (_conf.BoxType == BoxGenerationType::LIST) {
         const BoxList<T>& list = _conf.BoxList;
-        std::vector<std::pair<glm::vec<3, T>, uint32_t>> tmp;
-        for (const BoxEntry<T>& p : list.list_) {
+        std::vector<std::tuple<glm::vec<3, T>, uint32_t, int32_t>> tmp;
+        for(size_t l = 0; l < list.list_.size(); ++l){
+            const BoxEntry<T>& p = list.list_[l];
             for (uint32_t i = 0; i < p.count_; ++i)
-                tmp.push_back({ p.size_, p.perms_ });
+                tmp.push_back({ p.size_, p.perms_, int32_t(l) });
         }
         if (list.shuffle_boxes_)
             std::shuffle(tmp.begin(), tmp.end(), g);
@@ -718,15 +720,15 @@ void TP::Detail::run_impl(
             case BoxGenerationType::RANDOM:
             {
                 for (uint32_t i = 0; i < _conf.LookAheadSize; ++i)
-                    next_set.push_back({ rbox(dist(g), _conf.CubeRandomBoxes), dp });
+                    next_set.push_back({ rbox(dist(g), _conf.CubeRandomBoxes), dp, -1 });
             }
             break;
             case BoxGenerationType::LIST:
             {
                 for (uint32_t i = 0; i < _conf.LookAheadSize; ++i) {
                     if (next_q.empty()) break;
-                    const auto& [bb, pp] = next_q.front();
-                    next_set.push_back({ bb * T(0.5), pp });
+                    const auto& [bb, pp, ii] = next_q.front();
+                    next_set.push_back({ bb * T(0.5), pp, ii });
                     next_q.pop_front();
                 }
             }
@@ -735,7 +737,7 @@ void TP::Detail::run_impl(
         
         for (size_t i = 0; i < next_set.size(); ++i) {
 
-            const auto& [nextSize, nextPerm] = next_set[i];
+            const auto& [nextSize, nextPerm, nextId] = next_set[i];
 
             const FBox<3, T> aabb = FBox<3, T>{-nextSize, nextSize};
 
@@ -744,28 +746,46 @@ void TP::Detail::run_impl(
             const uint32_t n2 = uint32_t(std::round(aabb.GetExtent().z));
             
             //Z_XY
-            if(nextPerm & PF_Z_XY) dispatch_impl(_conf, _cont, res, mut, minc, i,
-                n0, n1, nextSize, n2, EAxisPerm::Z_XY_0);
+            const int32_t Z_XY = (nextPerm & PF_Z_XY); //todo: check on gcc if strange behaviour can be reproduced
+            if(Z_XY){
+                dispatch_impl(_conf, _cont, res, mut, minc, i,
+                    n0, n1, nextSize, nextId, n2, EAxisPerm::Z_XY_0);
+            }
 
             //Z_YX
-            if(nextPerm & PF_Z_YX) dispatch_impl(_conf, _cont, res, mut, minc, i,
-                n1, n0, nextSize, n2, EAxisPerm::Z_XY_1);
+            const int32_t Z_YX = (nextPerm & PF_Z_YX);
+            if(Z_YX){
+                dispatch_impl(_conf, _cont, res, mut, minc, i,
+                    n1, n0, nextSize, nextId, n2, EAxisPerm::Z_XY_1);
+            }
 
             //Y_XZ
-            if(nextPerm & PF_Y_XZ) dispatch_impl(_conf, _cont, res, mut, minc, i,
-                n0, n2, nextSize, n1, EAxisPerm::Y_XZ_0);
+            const int32_t Y_XZ = (nextPerm & PF_Y_XZ);
+            if(Y_XZ) {
+                dispatch_impl(_conf, _cont, res, mut, minc, i,
+                    n0, n2, nextSize, nextId, n1, EAxisPerm::Y_XZ_0);
+            }
 
             //Y_ZX
-            if(nextPerm & PF_Y_ZX) dispatch_impl(_conf, _cont, res, mut, minc, i,
-                n2, n0, nextSize, n1,  EAxisPerm::Y_XZ_1);
+            const int32_t Y_ZX = (nextPerm & PF_Y_ZX);
+            if(Y_ZX){
+                dispatch_impl(_conf, _cont, res, mut, minc, i,
+                    n2, n0, nextSize, nextId, n1,  EAxisPerm::Y_XZ_1);
+            }
 
             //X_YZ
-            if(nextPerm & PF_X_YZ) dispatch_impl(_conf, _cont, res, mut, minc, i,
-                n1, n2, nextSize, n0, EAxisPerm::X_YZ_0);
+            const int32_t X_YZ = (nextPerm & PF_X_YZ);
+            if(X_YZ){
+                dispatch_impl(_conf, _cont, res, mut, minc, i,
+                    n1, n2, nextSize, nextId, n0, EAxisPerm::X_YZ_0);
+            }
 
             //X_ZY
-            if(nextPerm & PF_X_ZY) dispatch_impl(_conf, _cont, res, mut, minc, i,
-                n2, n1, nextSize, n0, EAxisPerm::X_YZ_1);
+            const int32_t X_ZY = (nextPerm & PF_X_ZY);
+            if(X_ZY){
+                dispatch_impl(_conf, _cont, res, mut, minc, i,
+                    n2, n1, nextSize, nextId, n0, EAxisPerm::X_YZ_1);
+            }
 
             if (_cont->isDone_) break;
 
@@ -796,8 +816,8 @@ void TP::Detail::run_impl(
 
         for (size_t i = 0; i < next_set.size(); ++i) {
             if (i == r.set_index_) continue;
-            const auto& [ns, np] = next_set[i];
-            next_q.push_front({ ns * T(2.), np} );
+            const auto& [ns, np, ni] = next_set[i];
+            next_q.push_front({ ns * T(2.), np, ni} );
         }
 
         const FBox<3, T> tar = FBox<3, T>{
@@ -817,7 +837,7 @@ void TP::Detail::run_impl(
 
         {
             std::lock_guard<std::mutex> lock(_cont->m_data);
-            _cont->data_.push_back(tr);
+            _cont->data_.push_back({ r.id_, tr });
             _cont->bcc_ += 1;
             const auto si = r.ext * T(2.);
             _cont->vol_ = _cont->vol_ +  si.x * si.y * si.z;
@@ -859,13 +879,14 @@ void TP::Detail::dispatch_impl(
     std::atomic<double>& _minc,
     const size_t set_index_,
     const uint32_t _ext0, const uint32_t _ext1,
-    const glm::vec<3, T>& _ext_org,
+    const glm::vec<3, T>& _ext_org, const int32_t _id,
     const uint32_t _h, TP::Detail::EAxisPerm _perm
 ) {
         auto tr = [=, &_conf, &_res, &_m, &_minc] () -> void {
         auto ro = overlap_impl<T, CF, H_T, R_T, BS, HA>(_conf, _cont, _ext0, _ext1, _h);
         if (!ro.empty()) {
             for (auto& r : ro) {
+                r.id_ = _id;
                 r.set_index_ = set_index_;
                 r.ext = glm::vec<3, T>(_ext0, _ext1, _h);
                 r.ext_org = _ext_org;
