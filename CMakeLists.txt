@@ -24,7 +24,7 @@ option(BUILD_AS_LIBRARY "Use as library" FALSE)
 
 if (NOT BUILD_AS_LIBRARY)
 
-	add_executable( TPtest src/main.cpp )
+	add_executable( TP_App src/main.cpp )
 
 	# --------------- RAYLIB ---------------
 	message(STATUS "Fetching Raylib...")
@@ -56,7 +56,7 @@ if (NOT BUILD_AS_LIBRARY)
 			"${imgui_SOURCE_DIR}/imgui.cpp"		
 		)
 		add_library(imgui "${IMGUI_FILES}")
-		target_include_directories(TPtest PUBLIC "${imgui_SOURCE_DIR}")
+		target_include_directories(TP_App PUBLIC "${imgui_SOURCE_DIR}")
 	endif()
 
 	# ------------------ RAYGUI ------------------
@@ -73,7 +73,7 @@ if (NOT BUILD_AS_LIBRARY)
 			"${rimgui_SOURCE_DIR}/rlImGui.cpp"
 		)
 		add_library(rimgui "${RIMGUI_FILES}")
-		target_include_directories(TPtest PUBLIC "${rimgui_SOURCE_DIR}")
+		target_include_directories(TP_App PUBLIC "${rimgui_SOURCE_DIR}")
 	endif()
 	target_include_directories(rimgui PUBLIC "${imgui_SOURCE_DIR}")
 	target_link_libraries(rimgui PUBLIC imgui raylib)
@@ -93,8 +93,16 @@ if (NOT BUILD_AS_LIBRARY)
 		)
 
 		add_library(lodepng "${LODEPNG_FILES}")
-		target_include_directories(TPtest PUBLIC "${lodepng_SOURCE_DIR}")
+		target_include_directories(TP_App PUBLIC "${lodepng_SOURCE_DIR}")
 	endif()
+
+	# ------------------ JSON ------------------
+	message(STATUS "Fetching json...")
+	FetchContent_Declare(json 
+		URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+		DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+	)
+	FetchContent_MakeAvailable(json)
 
 endif()
 
@@ -116,8 +124,8 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(glm)
 
 if (NOT BUILD_AS_LIBRARY)
-	target_include_directories(TPtest PUBLIC include )
-	target_link_libraries(TPtest MQT2 glm::glm raylib imgui rimgui lodepng)
+	target_include_directories(TP_App PUBLIC include )
+	target_link_libraries(TP_App MQT2 glm::glm raylib imgui rimgui lodepng nlohmann_json::nlohmann_json)
 endif()
 
 # -----------------------------------------

@@ -10,7 +10,7 @@
 #include <type_traits>
 #include <functional>
 #include <random>
-#include <syncstream>
+//#include <syncstream>
 #include <queue>
 #include <algorithm>
 #include <numeric>
@@ -253,6 +253,7 @@ namespace TP {
             std::chrono::high_resolution_clock::time_point time_start_;
             std::chrono::high_resolution_clock::time_point time_end_;
             std::atomic<bool> isDone_ = true;
+            std::atomic<bool> terminate_ = false;
             std::atomic<double> vol_ = 0.;
             std::atomic<int32_t> bcc_ = 0;
             std::atomic<int32_t> mcc_ = 0;
@@ -537,7 +538,7 @@ void TP::Detail::Promise<T, H_T, R_T, BS, HA>::wait() {
 template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
 void TP::Detail::Promise<T, H_T, R_T, BS, HA>::stop() {
     assert(context_);
-    context_->isDone_ = false;
+    context_->terminate_ = true;
 }//TP::Detail::Promise::wait
 
 template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
@@ -613,6 +614,7 @@ TP::Detail::Promise<T, H_T, R_T, BS, HA> TP::solve(TP::Config<T, CF, H_T, R_T, B
     std::random_device rd;
     _conf.Seed = c->seed_ = _conf.UseRandomSeed ? rd() : _conf.Seed;
     c->isDone_ = false;
+    c->terminate_ = false;
     c->mt_ = std::thread(Detail::run_impl<T, CF, H_T, R_T, BS, HA>, _conf, c);
 
     return out;    
@@ -708,7 +710,7 @@ void TP::Detail::run_impl(
     while (true) {
 
         if (_conf.BoxType == BoxGenerationType::LIST && next_q.empty()) break;
-        if (_cont->isDone_) break;
+        if (_cont->terminate_) break;
 
         std::mutex mut;
         std::vector<Detail::Result<T>> res;
@@ -787,13 +789,13 @@ void TP::Detail::run_impl(
                     n2, n1, nextSize, nextId, n0, EAxisPerm::X_YZ_1);
             }
 
-            if (_cont->isDone_) break;
+            if (_cont->terminate_) break;
 
         }
  
         _cont->tg_.wait();
 
-        if (_cont->isDone_) break;
+        if (_cont->terminate_) break;
 
         //TODO misses when list mode
         if(res.empty()){
@@ -863,6 +865,7 @@ void TP::Detail::run_impl(
     }
 
     _cont->time_end_ = std::chrono::high_resolution_clock::now();
+    _cont->terminate_ = true;
     _cont->isDone_ = true;
     _cont->cv_.notify_all();
     

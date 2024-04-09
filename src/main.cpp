@@ -20,11 +20,13 @@
 #include <font_bold.h>
 
 
+
+
 int main() {
 
     using namespace TP;
 
-    InitWindow(1620, 880, "TurboPacker");
+    InitWindow(1920, 1080, "TurboPacker");
 
     const auto scale = GetWindowScaleDPI();
 
@@ -40,12 +42,12 @@ int main() {
 
     Detail::BoxList<float> postpacs;
     postpacs.shuffle_boxes_ = true;
-    postpacs.list_.emplace_back(glm::vec3{28.f, 17.4f, 10.f}, 100);
-    postpacs.list_.emplace_back(glm::vec3{35.5f, 24.f, 12.5f}, 100);
-    postpacs.list_.emplace_back(glm::vec3{38.f, 35.f, 16.9f}, 100);
-    postpacs.list_.emplace_back(glm::vec3{53.5f, 28.5f, 16.5f}, 100);
-    postpacs.list_.emplace_back(glm::vec3{39.0f, 13.0f, 11.0f}, 100);
-    postpacs.list_.emplace_back(glm::vec3{55.5f, 37.0f, 6.0f}, 100);
+    postpacs.list_.push_back(TP::Detail::BoxEntry<float>{ glm::vec3{28.f, 17.4f, 10.f}, 100 }); 
+    postpacs.list_.push_back(TP::Detail::BoxEntry<float>{ glm::vec3{35.5f, 24.f, 12.5f}, 100 });
+    postpacs.list_.push_back(TP::Detail::BoxEntry<float>{ glm::vec3{38.f, 35.f, 16.9f}, 100 });
+    postpacs.list_.push_back(TP::Detail::BoxEntry<float>{ glm::vec3{53.5f, 28.5f, 16.5f}, 100 });
+    postpacs.list_.push_back(TP::Detail::BoxEntry<float>{ glm::vec3{39.0f, 13.0f, 11.0f}, 100 });
+    postpacs.list_.push_back(TP::Detail::BoxEntry<float>{ glm::vec3{55.5f, 37.0f, 6.0f}, 100 });
 
     Config<float, CostFunction::CF_Krass> conf;
     conf.MultiThreading = true;
@@ -53,9 +55,9 @@ int main() {
     conf.UseRandomSeed = true;
     conf.Seed = 12341234;
     conf.Bounds = {80., 120.}; 
-    conf.Height = 20.;
-    conf.BoxType = Detail::BoxGenerationType::VALIDATE;
-    conf.CubeRandomBoxes = false;
+    conf.Height = 120.;
+    conf.BoxType = Detail::BoxGenerationType::RANDOM;
+    conf.CubeRandomBoxes = true;
     conf.LookAheadSize = 50;
     conf.EmptryTries = 0;
     conf.MaxEmptryTries = 0;
@@ -83,7 +85,7 @@ int main() {
         const uint8_t R = (uint8_t)(255 * RedSclr);
         const uint8_t G = (uint8_t)(255 * GreenSclr);
         const uint8_t B = 0;
-        return Color(R, G, B, 175);
+        return Color{ R, G, B, 175 };
     };
 
     const char* str_modes[] = { "Random", "List", "Validate" };
@@ -177,6 +179,14 @@ int main() {
                
             }
             ImGui::PopStyleColor(2);
+            ImGui::SameLine();
+            if(!b.empty()){
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.f, 0.f, 0.0f, 1.f));
+                if(ImGui::Button("Reset", ImVec2(100, 30))) {
+                    b.clear();
+                }
+                ImGui::PopStyleColor(1); 
+            } 
         }
 
         ImGui::Dummy({0, 10});
@@ -205,6 +215,7 @@ int main() {
         }
 
         ImGui::Checkbox("Multithreading", &conf.MultiThreading);
+        if(conf.MultiThreading) ImGui::InputInt("Threads", (int32_t*)&conf.NumThreads);
         ImGui::Checkbox("Random Seed", &conf.UseRandomSeed);
         {
             seedval = conf.Seed;
@@ -303,18 +314,18 @@ int main() {
 
         if(pr){
             if(cc++%30 == 0)
-                b = pr->data_cpy();
+                b = pr->data_cpy();            
+        }
 
-            for (size_t i = 0; i < b.size(); ++i) {
-                const auto&[id, tr] = b[i];      
-                const Vector3 ns = {glm::length(glm::vec3(tr[0])), glm::length(glm::vec3(tr[1])), glm::length(glm::vec3(tr[2])) };
-                const double temp = 1. - 1. / (conf.MaxBoxVolume - conf.MinBoxVolume) * ((ns.x * ns.y * ns.z) - conf.MinBoxVolume);
-                const auto trans = glm::vec<3, float>(tr[3]);
-                const Color cc = conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res ? 
-                    Color(eval_res->colmap_[id].r, eval_res->colmap_[id].g,eval_res->colmap_[id].b, 175) : col(temp);
-                DrawCubeV(Vector3{ trans.x, trans.z, trans.y }, Vector3{ ns.x, ns.z, ns.y }, cc);
-                DrawCubeWiresV(Vector3{ trans.x, trans.z, trans.y }, Vector3{ ns.x, ns.z, ns.y }, BLACK);
-            }
+        for (size_t i = 0; i < b.size(); ++i) {
+            const auto&[id, tr] = b[i];      
+            const Vector3 ns = {glm::length(glm::vec3(tr[0])), glm::length(glm::vec3(tr[1])), glm::length(glm::vec3(tr[2])) };
+            const double temp = 1. - 1. / (conf.MaxBoxVolume - conf.MinBoxVolume) * ((ns.x * ns.y * ns.z) - conf.MinBoxVolume);
+            const auto trans = glm::vec<3, float>(tr[3]);
+            const Color cc = conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res ? 
+                Color{ eval_res->colmap_[id].r, eval_res->colmap_[id].g,eval_res->colmap_[id].b, 175 } : col(temp);
+            DrawCubeV(Vector3{ trans.x, trans.z, trans.y }, Vector3{ ns.x, ns.z, ns.y }, cc);
+            DrawCubeWiresV(Vector3{ trans.x, trans.z, trans.y }, Vector3{ ns.x, ns.z, ns.y }, BLACK);
         }
 
         EndMode3D();

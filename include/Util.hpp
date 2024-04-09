@@ -2,9 +2,13 @@
 
 #include <format>
 #include <string>
+#include <filesystem>
+#include <fstream>
 
 #include <raylib.h>
 #include <raymath.h>
+
+#include <nlohmann/json.hpp>
 
 #include <TP.hpp>
 
@@ -182,3 +186,64 @@ namespace Util {
     };
 
 }//Util
+
+namespace Disk {
+
+    using json = nlohmann::json;
+
+    template<class T, template<typename> class COSTFUNCTION, class HEIGHTMAP_T, class R_T, uint32_t BUCKET_SIZE, class HEIGHTMAP_ALLOCATOR>
+    void load(const std::filesystem::path& _path) {
+
+        using Conf = TP::Config<T, COSTFUNCTION, HEIGHTMAP_T, R_T, BUCKET_SIZE, HEIGHTMAP_ALLOCATOR>;
+
+        std::ifstream i(_path);
+        if(!i.good()) return Conf();
+
+        Conf o;
+
+
+
+        return o;
+
+    }//load
+
+    template<class T, template<typename> class CF, class H_T, class R_T, uint32_t BS, class HA>
+    void save(
+        const TP::Config<T, CF, H_T, R_T, BS, HA>& _conf,
+        const std::filesystem::path& _path
+    ) {
+
+        json o;
+        o["MultiThreading"] = _conf.MultiThreading;
+        o["NumThreads"] = _conf.NumThreads;
+        o["UseRandomSeed"] = _conf.UseRandomSeed;
+        o["Seed"] = _conf.Seed;
+        o["Bounds"] = { {"x", _conf.Bounds.x }, {"y", _conf.Bounds.y } };
+        o["Height"] = _conf.Height;
+        o["BoxType"] = int32_t(_conf.BoxType);
+        o["AllowOverlap"] = _conf.AllowOverlap;
+        o["EmptryTries"] = _conf.EmptryTries;
+        o["LookAheadSize"] = _conf.LookAheadSize;
+        o["AllowedPermutations"] = _conf.AllowedPermutations;
+        o["CubeRandomBoxes"] = _conf.CubeRandomBoxes;
+        o["MinBoxVolume"] = _conf.MinBoxVolume;
+        o["MaxBoxVolume"] = _conf.MaxBoxVolume;
+        json bl = json::object();
+        bl["list_"] = json::array();
+        bl["shuffle_boxes_"] = l.shuffle_boxes_;
+        for(const TP::Detail::BoxEntry<T>& l : _conf.BoxList.list_){
+            json be = json::object();
+            be["size_"] = { { "x", l.size_.x }, { "y", l.size_.y }, { "z", l.size_.z } };
+            be["count_"] = l.count_;
+            be["perms_"] = l.perms_;
+            bl["list_"].push_back(be);    
+        }
+        o["BoxList"] = bl;
+        o["EnforceMisses"] = _conf.EnforceMisses;
+        o["EvalBoxCount"] = _conf.EvalBoxCount;
+
+        std::ofstream s(_path);
+        s << std::setw(4) << o;
+    }//save
+
+}//Json
