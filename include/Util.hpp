@@ -187,30 +187,102 @@ namespace Util {
 
 }//Util
 
+using json = nlohmann::json;
+
 namespace Disk {
 
-    using json = nlohmann::json;
+    template<class T, template<typename> class COSTFUNCTION, class HEIGHTMAP_T, class R_T, uint32_t BUCKET_SIZE, class HEIGHTMAP_ALLOCATOR>
+    TP::Config<T, COSTFUNCTION, HEIGHTMAP_T, R_T, BUCKET_SIZE, HEIGHTMAP_ALLOCATOR> create_default() {
+
+        using namespace TP;
+
+        Detail::BoxList<T> postpacs;
+        postpacs.shuffle_boxes_ = true;
+        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)28., (T)17.4, (T)10.}, 100 }); 
+        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)35.5, (T)24., (T)12.5}, 100 });
+        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)38., (T)35., (T)16.9}, 100 });
+        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)53.5, (T)28.5, (T)16.5}, 100 });
+        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)39., (T)13., (T)11.}, 100 });
+        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)55.5, (T)37., (T)6.}, 100 });
+
+        TP::Config<T, COSTFUNCTION, HEIGHTMAP_T, R_T, BUCKET_SIZE, HEIGHTMAP_ALLOCATOR> conf;
+        conf.MultiThreading = true;
+        conf.NumThreads = 4;
+        conf.UseRandomSeed = true;
+        conf.Seed = 12341234;
+        conf.Bounds = {80., 120.}; 
+        conf.Height = 120.;
+        conf.BoxType = Detail::BoxGenerationType::RANDOM;
+        conf.CubeRandomBoxes = true;
+        conf.LookAheadSize = 50;
+        conf.EmptryTries = 0;
+        conf.MaxEmptryTries = 0;
+        conf.AllowOverlap = false;
+        conf.MinBoxVolume = 15 * 15 * 15;
+        conf.MaxBoxVolume = 30 * 30 * 30;
+        conf.BoxList = std::move(postpacs);
+
+        return conf;
+    };
 
     template<class T, template<typename> class COSTFUNCTION, class HEIGHTMAP_T, class R_T, uint32_t BUCKET_SIZE, class HEIGHTMAP_ALLOCATOR>
-    void load(const std::filesystem::path& _path) {
+    TP::Config<T, COSTFUNCTION, HEIGHTMAP_T, R_T, BUCKET_SIZE, HEIGHTMAP_ALLOCATOR> load(const std::filesystem::path& _p) {
 
         using Conf = TP::Config<T, COSTFUNCTION, HEIGHTMAP_T, R_T, BUCKET_SIZE, HEIGHTMAP_ALLOCATOR>;
 
-        std::ifstream i(_path);
-        if(!i.good()) return Conf();
+        //std::cout << _config.dump(4) << std::endl;
 
-        Conf o;
+        std::ifstream i(_p);
+        json oo;
+        i >> oo;
+        
+        if(!oo.contains("Config")) return create_default<T, COSTFUNCTION, HEIGHTMAP_T, R_T, BUCKET_SIZE, HEIGHTMAP_ALLOCATOR>();
 
+        const json& o = oo["Config"];
 
-
-        return o;
-
+        Conf conf;
+        conf.MultiThreading = o["MultiThreading"].template get<bool>();
+        conf.NumThreads = o["NumThreads"].template get<uint32_t>();
+        conf.UseRandomSeed = o["UseRandomSeed"].template get<bool>();
+        conf.Seed = o["Seed"].template get<uint64_t>();
+        {
+            const json& bnds = o["Bounds"];
+            conf.Bounds = glm::vec<2, T>{ bnds["x"].template get<T>(), bnds["y"].template get<T>() };
+        }
+        conf.Height = o["Height"].template get<uint32_t>();
+        conf.BoxType = (TP::Detail::BoxGenerationType)o["BoxType"].template get<int32_t>();
+        conf.AllowOverlap = o["AllowOverlap"].template get<bool>();
+        conf.EmptryTries = o["EmptryTries"].template get<uint32_t>();
+        conf.MaxEmptryTries = o["MaxEmptryTries"].template get<uint32_t>();
+        conf.LookAheadSize = o["LookAheadSize"].template get<uint32_t>();
+        conf.AllowedPermutations = o["AllowedPermutations"].template get<uint32_t>();
+        conf.CubeRandomBoxes = o["CubeRandomBoxes"].template get<bool>();
+        conf.MinBoxVolume = o["MinBoxVolume"].template get<T>();
+        conf.MaxBoxVolume = o["MaxBoxVolume"].template get<T>();
+        {
+            const json& bl = o["BoxList"];
+            conf.BoxList.shuffle_boxes_ = bl["shuffle_boxes_"].template get<bool>();
+            const json& list = bl["list_"];
+            for(auto it = list.begin(); it != list.end(); ++it){
+                const json& e = *it;
+                TP::Detail::BoxEntry<T> ee;
+                {
+                    const json& si = e["size_"];
+                    ee.size_ = glm::vec<3, T>{ si["x"].template get<T>(), si["y"].template get<T>(), si["z"].template get<T>() };
+                }
+                ee.perms_ = e["perms_"].template get<uint32_t>();
+                ee.count_ = e["count_"].template get<uint32_t>();
+                conf.BoxList.list_.push_back(ee);
+            }
+        }
+        conf.EnforceMisses = o["EnforceMisses"].template get<bool>();
+        conf.EvalBoxCount = o["EvalBoxCount"].template get<uint32_t>();
+        return conf;
     }//load
 
     template<class T, template<typename> class CF, class H_T, class R_T, uint32_t BS, class HA>
-    void save(
-        const TP::Config<T, CF, H_T, R_T, BS, HA>& _conf,
-        const std::filesystem::path& _path
+    json save(
+        const TP::Config<T, CF, H_T, R_T, BS, HA>& _conf
     ) {
 
         json o;
@@ -223,6 +295,7 @@ namespace Disk {
         o["BoxType"] = int32_t(_conf.BoxType);
         o["AllowOverlap"] = _conf.AllowOverlap;
         o["EmptryTries"] = _conf.EmptryTries;
+        o["MaxEmptryTries"] = _conf.MaxEmptryTries;
         o["LookAheadSize"] = _conf.LookAheadSize;
         o["AllowedPermutations"] = _conf.AllowedPermutations;
         o["CubeRandomBoxes"] = _conf.CubeRandomBoxes;
@@ -230,7 +303,7 @@ namespace Disk {
         o["MaxBoxVolume"] = _conf.MaxBoxVolume;
         json bl = json::object();
         bl["list_"] = json::array();
-        bl["shuffle_boxes_"] = l.shuffle_boxes_;
+        bl["shuffle_boxes_"] = _conf.BoxList.shuffle_boxes_;
         for(const TP::Detail::BoxEntry<T>& l : _conf.BoxList.list_){
             json be = json::object();
             be["size_"] = { { "x", l.size_.x }, { "y", l.size_.y }, { "z", l.size_.z } };
@@ -242,8 +315,9 @@ namespace Disk {
         o["EnforceMisses"] = _conf.EnforceMisses;
         o["EvalBoxCount"] = _conf.EvalBoxCount;
 
-        std::ofstream s(_path);
-        s << std::setw(4) << o;
+        json out;
+        out["Config"] = o;
+        return out;
     }//save
 
 }//Json

@@ -427,6 +427,7 @@ namespace TP {
     struct Config {
         using T_ = T;
         using HEIGHTMAP_T_ = HEIGHTMAP_T;
+        using R_T_ = R_T;
         constexpr static uint32_t BUCKET_SIZE_ = BUCKET_SIZE;
         using HEIGHTMAP_ALLOCATOR_ = HEIGHTMAP_ALLOCATOR;
         using COSTFUNCTION_ = COSTFUNCTION<T>;
@@ -473,10 +474,10 @@ namespace TP {
         bool CubeRandomBoxes = true;
 
         //the minimum volume of the random boxes [default: 250]
-        float MinBoxVolume = 250.;
+        T MinBoxVolume = 250.;
 
         //the maximum volume of the random boxes [default: 1500]
-        float MaxBoxVolume = 1500.;
+        T MaxBoxVolume = 1500.;
 
         //--------------------------
 

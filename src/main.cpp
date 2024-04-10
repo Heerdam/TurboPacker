@@ -18,15 +18,33 @@
 
 #include <font_regular.h>
 #include <font_bold.h>
-
-
-
+#include <logo.h>
 
 int main() {
 
     using namespace TP;
 
-    InitWindow(1920, 1080, "TurboPacker");
+    int32_t wind_w = 800;
+    int32_t wind_h = 600;
+    if(std::filesystem::exists("config.json")){
+        std::ifstream i("config.json");
+        json o;
+        i >> o;
+        wind_w = o["width"].template get<int32_t>();
+        wind_h = o["height"].template get<int32_t>();
+    }
+
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE); 
+    InitWindow(wind_w, wind_h, "TurboPacker");
+
+    Image logo;
+    logo.data = (void*)logo_data;
+    logo.width = 301;
+    logo.height = 335;
+    logo.mipmaps = 0;
+    logo.format = PixelFormat::PIXELFORMAT_UNCOMPRESSED_R8G8B8A8;
+
+    SetWindowIcon(logo);  
 
     const auto scale = GetWindowScaleDPI();
 
@@ -40,31 +58,7 @@ int main() {
     ImGui_ImplRaylib_Init();
     Imgui_ImplRaylib_BuildFontAtlas();
 
-    Detail::BoxList<float> postpacs;
-    postpacs.shuffle_boxes_ = true;
-    postpacs.list_.push_back(TP::Detail::BoxEntry<float>{ glm::vec3{28.f, 17.4f, 10.f}, 100 }); 
-    postpacs.list_.push_back(TP::Detail::BoxEntry<float>{ glm::vec3{35.5f, 24.f, 12.5f}, 100 });
-    postpacs.list_.push_back(TP::Detail::BoxEntry<float>{ glm::vec3{38.f, 35.f, 16.9f}, 100 });
-    postpacs.list_.push_back(TP::Detail::BoxEntry<float>{ glm::vec3{53.5f, 28.5f, 16.5f}, 100 });
-    postpacs.list_.push_back(TP::Detail::BoxEntry<float>{ glm::vec3{39.0f, 13.0f, 11.0f}, 100 });
-    postpacs.list_.push_back(TP::Detail::BoxEntry<float>{ glm::vec3{55.5f, 37.0f, 6.0f}, 100 });
-
-    Config<float, CostFunction::CF_Krass> conf;
-    conf.MultiThreading = true;
-    conf.NumThreads = 4;
-    conf.UseRandomSeed = true;
-    conf.Seed = 12341234;
-    conf.Bounds = {80., 120.}; 
-    conf.Height = 120.;
-    conf.BoxType = Detail::BoxGenerationType::RANDOM;
-    conf.CubeRandomBoxes = true;
-    conf.LookAheadSize = 50;
-    conf.EmptryTries = 0;
-    conf.MaxEmptryTries = 0;
-    conf.AllowOverlap = false;
-    conf.MinBoxVolume = 15 * 15 * 15;
-    conf.MaxBoxVolume = 30 * 30 * 30;
-    conf.BoxList = std::move(postpacs);
+    auto conf = Disk::load<float, CostFunction::CF_Krass, uint16_t, uint32_t, 15, std::allocator<uint16_t>>(std::filesystem::path("config.json"));
 
     using Prmise = decltype(solve(conf));
     std::unique_ptr<Prmise> pr = nullptr;
@@ -96,6 +90,11 @@ int main() {
     //-------------------------------------
 
     while (!WindowShouldClose()) {
+
+        if(IsWindowResized()){
+            wind_w = GetScreenWidth(),
+            wind_h = GetScreenHeight();
+        }
 
         ImGui_ImplRaylib_ProcessEvents();
        
@@ -337,5 +336,11 @@ int main() {
     }
     ImGui_ImplRaylib_Shutdown();
     CloseWindow();
+
+    json config = Disk::save(conf);
+    config["width"] = wind_w;
+    config["height"] = wind_h;
+    std::ofstream s("config.json");
+    s << std::setw(4) << config;
     return 0;
 }
