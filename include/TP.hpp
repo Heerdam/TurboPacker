@@ -558,7 +558,8 @@ template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
 std::vector<std::pair<int32_t, glm::mat<4, 4, T>>> TP::Detail::Promise<T, H_T, R_T, BS, HA>::data_cpy() {
     assert(context_);
     std::lock_guard<std::mutex> lock(context_->m_data);
-    return context_->data_;
+    std::vector<std::pair<int32_t, glm::mat<4, 4, T>>> out = context_->data_;
+    return out;
 }//TP::Detail::Promise::data
 
 template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>

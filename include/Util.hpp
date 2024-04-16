@@ -104,7 +104,7 @@ namespace Util {
         }
 
         Image img;
-        img.mipmaps = 1;
+        img.mipmaps = 0;
         img.width = _bounds.x;
         img.height = _bounds.y;
         img.format = PixelFormat::PIXELFORMAT_UNCOMPRESSED_R8G8B8A8;
