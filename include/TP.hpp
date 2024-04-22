@@ -116,6 +116,7 @@ namespace TP {
 
         template<int32_t DIM, class T>
         struct FBox {
+            int32_t id_ = -1;
             glm::vec<DIM, T> min_;
             glm::vec<DIM, T> max_;
             [[nodiscard]] glm::vec<DIM, T> GetExtent() const noexcept { return (max_ - min_) * T(0.5); }
@@ -215,6 +216,22 @@ namespace TP {
 
         //-------------------------
 
+        template<class T>
+        class Topology {
+
+            std::vector<FBox<3, T>> bxs_;
+
+        public:
+
+            void push(const FBox<3, T>& _bx);
+            //[[nodiscard]] std::optinal<FBox<3, T>> sample(const glm::vec<T, 3>& _pos) const;
+            //[[nodiscard]] std::optinal<FBox<3, T>> under(const glm::vec<T, 3>& _pos) const;
+            //[[nodiscard]] std::vector<std::pair<bool, FBox<3, T>>> under(const FBox<3, T>& _box) const;
+
+        };//Topology
+
+        //-------------------------
+
         enum class EAxisPerm : uint8_t {
             Z_XY_0, Z_XY_1, Z_XY_2, Z_XY_3,
             Y_XZ_0, Y_XZ_1, Y_XZ_2, Y_XZ_3,
@@ -232,19 +249,41 @@ namespace TP {
         //-------------------------
 
         template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
-        struct SolverContext {
+        struct Bin {
 
+            int32_t id_;
+            //-------------------------
             std::vector<H_T> map_;
             std::unique_ptr<MQT2::MedianQuadTree<H_T, R_T, BS, HA>> tree_;
+            //-------------------------
+            int32_t N_ = 0;
+            T tot_vol_ = T(0.);
+            //-------------------------
+            uint64_t seed_;
+
+        };//Bin
+
+        //-------------------------
+
+        template<class T>
+        struct Entry {
+            int32_t id_ = -1;
+            int32_t bin_id_ = 0;
+            glm::mat<4, 4, T> tf_;
+        };//Entry
+
+        //-------------------------
+
+        template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
+        struct SolverContext {
 
             std::thread mt_;
             TaskGraph tg_;
 
-            std::vector<std::pair<int32_t, glm::mat<4, 4, T>>> data_;
+            std::vector<Entry<T>> data_;
             std::mutex m_data;
 
-            int32_t N_;
-            T tot_vol_;
+            std::vector<Bin<T, H_T, R_T, BS, HA>> bins_;
 
             uint64_t seed_;
 
@@ -261,9 +300,7 @@ namespace TP {
             SolverContext(const int32_t _num_threads) : tg_(TaskGraph(_num_threads)) {}
             SolverContext(const SolverContext&) = delete;
             SolverContext(SolverContext&&) = delete;
-            ~SolverContext() {
-                mt_.join();
-            }
+            ~SolverContext() { mt_.join(); }
 
         };//SolverContext
 
@@ -295,13 +332,13 @@ namespace TP {
             void stop();
 
             //NOT thread safe! only call when isDone() returns true!
-            [[nodiscard]] const std::vector<std::pair<int32_t, glm::mat<4, 4, T>>>& data() const;
+            [[nodiscard]] std::vector<Entry<T>>& data() const;
 
             //NOT thread safe! only call when isDone() returns true!
-            [[nodiscard]] std::vector<std::pair<int32_t, glm::mat<4, 4, T>>>& data();
+            [[nodiscard]] std::vector<Entry<T>>& data();
 
             //thread safe! returns a copy of the data
-            [[nodiscard]] std::vector<std::pair<int32_t, glm::mat<4, 4, T>>> data_cpy();
+            [[nodiscard]] std::vector<Entry<T>> data_cpy();
 
             //thread safe!
             [[nodiscard]] bool isDone() const;
@@ -345,9 +382,25 @@ namespace TP {
         };//BoxList
 
         //-------------------------
+
+        template<class T>
+        struct BinInfo {
+
+            //the bounds of the domain [default: none]
+            glm::vec<2, T> Bounds;
+
+            //the max height [default: 150]
+            uint32_t Height = 150;
+
+        };//BinInfo
+
+        //------------------------- TODO: document those members!!
         template<class T>
         struct Result {
+            Topology<T>* topo;
+            //-----------
             int32_t id_;
+            int32_t bin;
             bool isRandomBox;
             T weight;
             uint32_t n0, n1, h;
@@ -445,11 +498,7 @@ namespace TP {
         //the seed [default: 1234567890]
         uint64_t Seed = 1234567890;
 
-        //the bounds of the domain [default: none]
-        glm::vec<2, T> Bounds;
-
-        //the max height [default: 150]
-        uint32_t Height = 150;
+        std::vector<Detail::BinInfo<T>> Bins;
 
         //if random boxes or a pre-defined list of boxes should be used [default: Random]
         Detail::BoxGenerationType BoxType = Detail::BoxGenerationType::RANDOM;
@@ -468,6 +517,7 @@ namespace TP {
 
         //--------------------------
 
+        //
         uint32_t AllowedPermutations = PF_ALL;
 
         //if the random boxes should be cubes [default: true]
@@ -506,6 +556,7 @@ namespace TP {
         [[nodiscard]] std::vector<Result<T>> overlap_impl(
             const Config<T, CF, H_T, R_T, BS, HA>& _conf,
             SolverContext<T, H_T, R_T, BS, HA>* _cont,
+            const size_t _bin_index,
             const uint32_t _ext0, 
             const uint32_t _ext1, 
             const uint32_t _h
@@ -519,6 +570,7 @@ namespace TP {
             std::mutex& _m,
             std::atomic<double>& _minc,
             const size_t _set_index,
+            const size_t _bin_index,
             const uint32_t _n0, const uint32_t _n1,
             const glm::vec<3, T>& _ext_org, const int32_t _id,
             const uint32_t _h, EAxisPerm _perm
@@ -543,19 +595,19 @@ void TP::Detail::Promise<T, H_T, R_T, BS, HA>::stop() {
 }//TP::Detail::Promise::wait
 
 template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
-const std::vector<std::pair<int32_t, glm::mat<4, 4, T>>>& TP::Detail::Promise<T, H_T, R_T, BS, HA>::data() const {
+std::vector<TP::Detail::Entry<T>>& TP::Detail::Promise<T, H_T, R_T, BS, HA>::data() const {
     assert(context_);
     return context_->data_;
 }//TP::Detail::Promise::data
 
 template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
-std::vector<std::pair<int32_t, glm::mat<4, 4, T>>>& TP::Detail::Promise<T, H_T, R_T, BS, HA>::data() {
+std::vector<TP::Detail::Entry<T>>& TP::Detail::Promise<T, H_T, R_T, BS, HA>::data() {
     assert(context_);
     return context_->data_;
 }//TP::Detail::Promise::data
 
 template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
-std::vector<std::pair<int32_t, glm::mat<4, 4, T>>> TP::Detail::Promise<T, H_T, R_T, BS, HA>::data_cpy() {
+std::vector<TP::Detail::Entry<T>> TP::Detail::Promise<T, H_T, R_T, BS, HA>::data_cpy() {
     assert(context_);
     std::lock_guard<std::mutex> lock(context_->m_data);
     std::vector<std::pair<int32_t, glm::mat<4, 4, T>>> out = context_->data_;
@@ -617,6 +669,17 @@ TP::Detail::Promise<T, H_T, R_T, BS, HA> TP::solve(TP::Config<T, CF, H_T, R_T, B
     _conf.Seed = c->seed_ = _conf.UseRandomSeed ? rd() : _conf.Seed;
     c->isDone_ = false;
     c->terminate_ = false;
+
+    Rand rng (_conf.Seed);
+    std::uniform_int_distribution<int32_t> dist;
+
+    assert(!_conf.Bins.empty());
+    c->bins_.resize(_conf.Bins.size());
+    for(size_t i = 0; i < _conf.Bins.size(); ++i){
+        c->bins_[i].id_ = int32_t(i);
+        c->bins_[i].seed_ = dist(rng());
+    }
+
     c->mt_ = std::thread(Detail::run_impl<T, CF, H_T, R_T, BS, HA>, _conf, c);
 
     return out;    
@@ -638,40 +701,61 @@ void TP::Detail::run_impl(
     using DistD = ::std::uniform_real_distribution<T>;
     using Rand = std::mt19937_64;
 
-    const uint32_t ee0 = _conf.Bounds.y + 2;
-    const uint32_t ee1 = _conf.Bounds.x + 2;
-
     _cont->time_start_ = std::chrono::high_resolution_clock::now();
-    _cont->tot_vol_ = T(1.) / (_conf.Height * _conf.Bounds.x * _conf.Bounds.y);
-    _cont->N_ = Detail::get_power_of_2(std::max(ee0, ee1), Tree::BUCKET_SIZE);
 
     const bool useRandomBox = _conf.BoxType == BoxGenerationType::RANDOM;
 
-    _cont->map_.resize(_cont->N_ * _cont->N_);
-    std::fill(_cont->map_.begin(), _cont->map_.end(), 0);
+    std::vector<glm::vec<2, uint32_t>> ee;
+    ee.resize(_conf.Bins.size());
 
-    for (size_t n0 = 0; n0 < ee0; ++n0) {
-        const size_t i1 = n0 * _cont->N_;
-        const size_t i2 = (ee1 - 1) + n0 * _cont->N_;
-        _cont->map_[i1] = _conf.Height;
-        _cont->map_[i2] = _conf.Height;
+    for(size_t i = 0; i < _conf.Bins.size(); ++i){
+
+        const auto& bc = _conf.Bins[i];
+        const auto& bi = _cont->bins_[i];
+
+        const int32_t ee0 = bc.Bounds.y + 2;
+        const int32_t ee1 = bc.Bounds.x + 2;
+
+        ee[i] = { ee0, ee1 };
+
+        bi.tot_vol_ = T(1.) / (bc.Height * bc.Bounds.x * bc.Bounds.y);
+        bi.N_ = Detail::get_power_of_2(std::max(ee0, ee1), Tree::BUCKET_SIZE);
+
+        bi.map_.resize(bi.N_ * bi.N_);
+        std::fill(bi.map_.begin(), bi.map_.end(), 0);
+
+        for (size_t n0 = 0; n0 < ee0; ++n0) {
+            const size_t i1 = n0 * bi.N_;
+            const size_t i2 = (ee1 - 1) + n0 * bi.N_;
+            bi.map_[i1] = bc.Height;
+            bi.map_[i2] = bc.Height;
+        }
+
+        for (size_t n1 = 0; n1 < ee1; ++n1) {
+            const size_t i1 = n1;
+            const size_t i2 = n1 + (ee0 - 1) * bi.N_;
+            bi.map_[i1] = bc.Height;
+            bi.map_[i2] = bc.Height;
+        }
+
+        bi.tree_ = std::make_unique<Tree>(bi.map_, bi.N_);
+
     }
-
-    for (size_t n1 = 0; n1 < ee1; ++n1) {
-        const size_t i1 = n1;
-        const size_t i2 = n1 + (ee0 - 1) * _cont->N_;
-        _cont->map_[i1] = _conf.Height;
-        _cont->map_[i2] = _conf.Height;
-    }
-
-    _cont->tree_ = std::make_unique<Tree>(_cont->map_, _cont->N_);
 
     //--------------------------
 
-    const uint32_t bc = (_cont->N_ / Tree::BUCKET_SIZE);
-    std::vector<bool> mm;
-    mm.resize(bc * bc);
-    std::fill(mm.begin(), mm.end(), true);
+    std::vector<std::vector<bool>> mm;
+    mm.resize(_conf.Bins.size());
+
+    for(size_t i = 0; i < _conf.Bins.size(); ++i){
+        const auto& bc = _conf.Bins[i];
+        const auto& bi = _cont->bins_[i];
+
+        const uint32_t bbc = (bi.N_ / Tree::BUCKET_SIZE);
+        
+        mm[i].resize(bbc * bbc);
+        std::fill(mm.begin(), mm.end(), true);
+    }
 
     uint32_t et = 0;
 
@@ -739,60 +823,64 @@ void TP::Detail::run_impl(
             break;
         }
         
-        for (size_t i = 0; i < next_set.size(); ++i) {
+        for(size_t j = 0; j < _conf.Bins.size(); ++j){
 
-            const auto& [nextSize, nextPerm, nextId] = next_set[i];
+            for (size_t i = 0; i < next_set.size(); ++i) {
 
-            const FBox<3, T> aabb = FBox<3, T>{-nextSize, nextSize};
+                const auto& [nextSize, nextPerm, nextId] = next_set[i];
 
-            const uint32_t n0 = uint32_t(std::round(aabb.GetExtent().x));
-            const uint32_t n1 = uint32_t(std::round(aabb.GetExtent().y));
-            const uint32_t n2 = uint32_t(std::round(aabb.GetExtent().z));
-            
-            //Z_XY
-            const int32_t Z_XY = (nextPerm & PF_Z_XY); //todo: check on gcc if strange behaviour can be reproduced
-            if(Z_XY){
-                dispatch_impl(_conf, _cont, res, mut, minc, i,
-                    n0, n1, nextSize, nextId, n2, EAxisPerm::Z_XY_0);
+                const FBox<3, T> aabb = FBox<3, T>{-nextSize, nextSize};
+
+                const uint32_t n0 = uint32_t(std::round(aabb.GetExtent().x));
+                const uint32_t n1 = uint32_t(std::round(aabb.GetExtent().y));
+                const uint32_t n2 = uint32_t(std::round(aabb.GetExtent().z));
+                
+                //Z_XY
+                const int32_t Z_XY = (nextPerm & PF_Z_XY); //todo: check on gcc if strange behaviour can be reproduced
+                if(Z_XY){
+                    dispatch_impl(_conf, _cont, res, mut, minc, i, j,
+                        n0, n1, nextSize, nextId, n2, EAxisPerm::Z_XY_0);
+                }
+
+                //Z_YX
+                const int32_t Z_YX = (nextPerm & PF_Z_YX);
+                if(Z_YX){
+                    dispatch_impl(_conf, _cont, res, mut, minc, i, j,
+                        n1, n0, nextSize, nextId, n2, EAxisPerm::Z_XY_1);
+                }
+
+                //Y_XZ
+                const int32_t Y_XZ = (nextPerm & PF_Y_XZ);
+                if(Y_XZ) {
+                    dispatch_impl(_conf, _cont, res, mut, minc, i, j,
+                        n0, n2, nextSize, nextId, n1, EAxisPerm::Y_XZ_0);
+                }
+
+                //Y_ZX
+                const int32_t Y_ZX = (nextPerm & PF_Y_ZX);
+                if(Y_ZX){
+                    dispatch_impl(_conf, _cont, res, mut, minc, i, j,
+                        n2, n0, nextSize, nextId, n1,  EAxisPerm::Y_XZ_1);
+                }
+
+                //X_YZ
+                const int32_t X_YZ = (nextPerm & PF_X_YZ);
+                if(X_YZ){
+                    dispatch_impl(_conf, _cont, res, mut, minc, i, j,
+                        n1, n2, nextSize, nextId, n0, EAxisPerm::X_YZ_0);
+                }
+
+                //X_ZY
+                const int32_t X_ZY = (nextPerm & PF_X_ZY);
+                if(X_ZY){
+                    dispatch_impl(_conf, _cont, res, mut, minc, i, j,
+                        n2, n1, nextSize, nextId, n0, EAxisPerm::X_YZ_1);
+                }
+
+                if (_cont->terminate_) break;
+
             }
-
-            //Z_YX
-            const int32_t Z_YX = (nextPerm & PF_Z_YX);
-            if(Z_YX){
-                dispatch_impl(_conf, _cont, res, mut, minc, i,
-                    n1, n0, nextSize, nextId, n2, EAxisPerm::Z_XY_1);
-            }
-
-            //Y_XZ
-            const int32_t Y_XZ = (nextPerm & PF_Y_XZ);
-            if(Y_XZ) {
-                dispatch_impl(_conf, _cont, res, mut, minc, i,
-                    n0, n2, nextSize, nextId, n1, EAxisPerm::Y_XZ_0);
-            }
-
-            //Y_ZX
-            const int32_t Y_ZX = (nextPerm & PF_Y_ZX);
-            if(Y_ZX){
-                dispatch_impl(_conf, _cont, res, mut, minc, i,
-                    n2, n0, nextSize, nextId, n1,  EAxisPerm::Y_XZ_1);
-            }
-
-            //X_YZ
-            const int32_t X_YZ = (nextPerm & PF_X_YZ);
-            if(X_YZ){
-                dispatch_impl(_conf, _cont, res, mut, minc, i,
-                    n1, n2, nextSize, nextId, n0, EAxisPerm::X_YZ_0);
-            }
-
-            //X_ZY
-            const int32_t X_ZY = (nextPerm & PF_X_ZY);
-            if(X_ZY){
-                dispatch_impl(_conf, _cont, res, mut, minc, i,
-                    n2, n1, nextSize, nextId, n0, EAxisPerm::X_YZ_1);
-            }
-
             if (_cont->terminate_) break;
-
         }
  
         _cont->tg_.wait();
@@ -828,30 +916,30 @@ void TP::Detail::run_impl(
             glm::vec<3, T>(r.n0 - r.ext.x, r.n1 - r.ext.y, r.h),
             glm::vec<3, T>(r.n0 + r.ext.x, r.n1 + r.ext.y, r.h + 2 * r.ext.z)};
 
-        const auto tr = make_transform<T>(
-            r.perm,
-            tar,
-            glm::vec<3, T>(0.),
-            r.ext * T(2.)
-        ); 
-
-        //std::osyncstream(std::cout) << "---------" << std::endl;
-        //std::osyncstream(std::cout) << glm::to_string(tr) << std::endl;
-        //std::osyncstream(std::cout) << "[" << tar.min_.x << ", " << tar.min_.y << ", " << r.h << "][" << tar.max_.x << ", " << tar.max_.y << "]" << std::endl;
+        Entry<T> e;
+        e.id_ = r.id_;
+        e.bin_id_ = r.bin_;
+        e.tf_ = make_transform<T>(r.perm, tar, glm::vec<3, T>(0.), r.ext * T(2.)); 
 
         {
+            auto& bi = _cont->bins_[e.bin_id_];
             std::lock_guard<std::mutex> lock(_cont->m_data);
-            _cont->data_.push_back({ r.id_, tr });
+            _cont->data_.push_back(e);
             _cont->bcc_ += 1;
             const auto si = r.ext * T(2.);
-            _cont->vol_ = _cont->vol_ +  si.x * si.y * si.z;
+            bi.vol_ = bi.vol_ +  si.x * si.y * si.z;
         }
 
-        std::fill(mm.begin(), mm.end(), false);
-        for (uint32_t n0 = uint32_t(tar.min_.x) / Tree::BUCKET_SIZE; n0 <= uint32_t(tar.max_.x) / Tree::BUCKET_SIZE; ++n0) {
-            for (uint32_t n1 = uint32_t(tar.min_.y) / Tree::BUCKET_SIZE; n1 <= uint32_t(tar.max_.y) / Tree::BUCKET_SIZE; ++n1) {
-                const size_t iid = n0 + n1 * bc;
-                mm[iid] = true;
+        {
+            const auto& bi = _conf.Bins[e.bin_id_];
+            auto& mmm = mm[e.bin_id_];
+            const uint32_t bbc = (bi.N_ / Tree::BUCKET_SIZE);
+            std::fill(mmm.begin(), mmm.end(), false);
+            for (uint32_t n0 = uint32_t(tar.min_.x) / Tree::BUCKET_SIZE; n0 <= uint32_t(tar.max_.x) / Tree::BUCKET_SIZE; ++n0) {
+                for (uint32_t n1 = uint32_t(tar.min_.y) / Tree::BUCKET_SIZE; n1 <= uint32_t(tar.max_.y) / Tree::BUCKET_SIZE; ++n1) {
+                    const size_t iid = n0 + n1 * bbc;
+                    mmm[iid] = true;
+                }
             }
         }
 
@@ -882,17 +970,18 @@ void TP::Detail::dispatch_impl(
     std::vector<TP::Detail::Result<T>>& _res,
     std::mutex& _m,
     std::atomic<double>& _minc,
-    const size_t set_index_,
+    const size_t _set_index,
+    const size_t _bin_index,
     const uint32_t _ext0, const uint32_t _ext1,
     const glm::vec<3, T>& _ext_org, const int32_t _id,
     const uint32_t _h, TP::Detail::EAxisPerm _perm
 ) {
         auto tr = [=, &_conf, &_res, &_m, &_minc] () -> void {
-        auto ro = overlap_impl<T, CF, H_T, R_T, BS, HA>(_conf, _cont, _ext0, _ext1, _h);
+        auto ro = overlap_impl<T, CF, H_T, R_T, BS, HA>(_conf, _bin_index, _cont, _ext0, _ext1, _h);
         if (!ro.empty()) {
             for (auto& r : ro) {
                 r.id_ = _id;
-                r.set_index_ = set_index_;
+                r.set_index_ = _set_index;
                 r.ext = glm::vec<3, T>(_ext0, _ext1, _h);
                 r.ext_org = _ext_org;
                 r.perm = _perm;
@@ -917,6 +1006,7 @@ template<typename T, template<typename> class CF, typename H_T, typename R_T, ui
 std::vector<TP::Detail::Result<T>> TP::Detail::overlap_impl(
     const Config<T, CF, H_T, R_T, BS, HA>& _conf,
     SolverContext<T, H_T, R_T, BS, HA>* _cont,
+    const size_t _bin_index,
     const uint32_t _ext0, 
     const uint32_t _ext1, 
     const uint32_t _h
@@ -925,8 +1015,11 @@ std::vector<TP::Detail::Result<T>> TP::Detail::overlap_impl(
     using namespace MQT2;
     using Vec2i = Vec2<R_T>;
 
-    const uint32_t ee0 = _conf.Bounds.y + 2;
-    const uint32_t ee1 = _conf.Bounds.x + 2;
+    const auto& bc = _conf.Bins[_bin_index];
+    const auto& bi = _cont->bins_[_bin_index];
+
+    const uint32_t ee0 = bc.Bounds.y + 2;
+    const uint32_t ee1 = bc.Bounds.x + 2;
 
     if(_ext0 >= ee0 || _ext1 >= ee1) return {};
 
@@ -934,19 +1027,19 @@ std::vector<TP::Detail::Result<T>> TP::Detail::overlap_impl(
     for (int32_t n0 = _ext0 + 1; n0 < ee0 - _ext0 - 1; ++n0) {
         for (int32_t n1 = _ext1 + 1; n1 < ee1 - _ext1 - 1; ++n1) {
 
-            const size_t i = n1 + n0 * _cont->N_;
-            assert(i < _cont->map_.size());
-            if (int32_t(_cont->map_[i]) + 2 * _h >= _conf.Height) continue;
+            const size_t i = n1 + n0 * bi->N_;
+            assert(i < bi->map_.size());
+            if (int32_t(bi->map_[i]) + 2 * _h >= bc.Height) continue;
 
-            const auto [l1, m1, h1] = _cont->tree_->check_overlap(
+            const auto [l1, m1, h1] = bi->tree_->check_overlap(
                 Vec2i{ R_T(n0 - _ext0), R_T(n1 - _ext1) },
                 Vec2i{ R_T(n0 + _ext0), R_T(n1 + _ext1) },
-                _cont->map_[i]);
+                bi->map_[i]);
 
-            const auto [l2, m2, h2] = _cont->tree_->check_border_overlap(
+            const auto [l2, m2, h2] = bi->tree_->check_border_overlap(
                 Vec2i{ R_T(n0 - _ext0) - 1, R_T(n1 - _ext1) + 1 },
                 Vec2i{ R_T(n0 + _ext0) - 1, R_T(n1 + _ext1) + 1 },
-                _cont->map_[i]);
+                bi->map_[i]);
 
             if (_conf.AllowOverlap) {
                 if (h1 != 0) continue;
@@ -955,6 +1048,7 @@ std::vector<TP::Detail::Result<T>> TP::Detail::overlap_impl(
             }
 
             Result<T> out;
+            out.bin = _bin_index;
             out.n0 = n0;
             out.n1 = n1;
             out.l = l1;

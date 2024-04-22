@@ -232,6 +232,8 @@ namespace Disk {
 
         //std::cout << _config.dump(4) << std::endl;
 
+        if(!std::filesystem::exists("config.json")) return create_default<T, COSTFUNCTION, HEIGHTMAP_T, R_T, BUCKET_SIZE, HEIGHTMAP_ALLOCATOR>();
+
         std::ifstream i(_p);
         json oo;
         i >> oo;

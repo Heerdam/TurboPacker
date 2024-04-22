@@ -41,7 +41,7 @@ int main() {
     logo.data = (void*)logo_data;
     logo.width = 301;
     logo.height = 335;
-    logo.mipmaps = 0;
+    logo.mipmaps = 1;
     logo.format = PixelFormat::PIXELFORMAT_UNCOMPRESSED_R8G8B8A8;
 
     SetWindowIcon(logo);  
@@ -92,7 +92,7 @@ int main() {
     while (!WindowShouldClose()) {
 
         if(IsWindowResized()){
-            wind_w = GetScreenWidth(),
+            wind_w = GetScreenWidth(), 
             wind_h = GetScreenHeight();
         }
 
