@@ -116,15 +116,18 @@ namespace TP {
 
         template<int32_t DIM, class T>
         struct FBox {
-            int32_t id_ = -1;
             glm::vec<DIM, T> min_;
             glm::vec<DIM, T> max_;
+            //---------------------------
             [[nodiscard]] glm::vec<DIM, T> GetExtent() const noexcept { return (max_ - min_) * T(0.5); }
             [[nodiscard]] glm::vec<DIM, T> GetCenter() const noexcept { return min_ + GetExtent(); }
             [[nodiscard]] glm::vec<DIM, T> getSize() const noexcept { return (max_ - min_); }
             [[nodiscard]] T minWidth() const noexcept { return std::min(max_.x - min_.x, max_.y - min_.y); }
             [[nodiscard]] T getArea() const noexcept { return (max_.x - min_.x) * (max_.y - min_.y); }
             [[nodiscard]] T getAspectRatio() const noexcept { return (max_.x - min_.x) / (max_.y - min_.y); } 
+            //---------------------------
+            int32_t id = -1;
+            int32_t bin_id = 0;
         };//FBox
 
         template<int32_t DIM, class T>
@@ -610,7 +613,7 @@ template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
 std::vector<TP::Detail::Entry<T>> TP::Detail::Promise<T, H_T, R_T, BS, HA>::data_cpy() {
     assert(context_);
     std::lock_guard<std::mutex> lock(context_->m_data);
-    std::vector<std::pair<int32_t, glm::mat<4, 4, T>>> out = context_->data_;
+    std::vector<TP::Detail::Entry<T>> out = context_->data_;
     return out;
 }//TP::Detail::Promise::data
 

@@ -205,13 +205,16 @@ namespace Disk {
         postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)39., (T)13., (T)11.}, 100 });
         postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)55.5, (T)37., (T)6.}, 100 });
 
+        Detail::BinInfo<T> bin;
+        bin.Bounds = {80., 120.}; 
+        bin.Height = 120.;
+
         TP::Config<T, COSTFUNCTION, HEIGHTMAP_T, R_T, BUCKET_SIZE, HEIGHTMAP_ALLOCATOR> conf;
         conf.MultiThreading = true;
         conf.NumThreads = 4;
         conf.UseRandomSeed = true;
         conf.Seed = 12341234;
-        conf.Bounds = {80., 120.}; 
-        conf.Height = 120.;
+        conf.Bins.push_back(bin);
         conf.BoxType = Detail::BoxGenerationType::RANDOM;
         conf.CubeRandomBoxes = true;
         conf.LookAheadSize = 50;
@@ -228,6 +231,7 @@ namespace Disk {
     template<class T, template<typename> class COSTFUNCTION, class HEIGHTMAP_T, class R_T, uint32_t BUCKET_SIZE, class HEIGHTMAP_ALLOCATOR>
     TP::Config<T, COSTFUNCTION, HEIGHTMAP_T, R_T, BUCKET_SIZE, HEIGHTMAP_ALLOCATOR> load(const std::filesystem::path& _p) {
 
+        using namespace TP;
         using Conf = TP::Config<T, COSTFUNCTION, HEIGHTMAP_T, R_T, BUCKET_SIZE, HEIGHTMAP_ALLOCATOR>;
 
         //std::cout << _config.dump(4) << std::endl;
@@ -248,10 +252,15 @@ namespace Disk {
         conf.UseRandomSeed = o["UseRandomSeed"].template get<bool>();
         conf.Seed = o["Seed"].template get<uint64_t>();
         {
-            const json& bnds = o["Bounds"];
-            conf.Bounds = glm::vec<2, T>{ bnds["x"].template get<T>(), bnds["y"].template get<T>() };
+            const json& bins = o["Bins"];
+            for(auto it = bins.begin(); it != bins.end(); ++it){
+                const json& e = *it;
+                Detail::BinInfo<T> bin;
+                bin.Bounds = glm::vec<2, T>{ e["Bounds"]["x"].template get<T>(), e["Bounds"]["y"].template get<T>() };
+                bin.Height = e["Height"];
+                conf.Bins.push_back(bin);
+            }
         }
-        conf.Height = o["Height"].template get<uint32_t>();
         conf.BoxType = (TP::Detail::BoxGenerationType)o["BoxType"].template get<int32_t>();
         conf.AllowOverlap = o["AllowOverlap"].template get<bool>();
         conf.EmptryTries = o["EmptryTries"].template get<uint32_t>();
@@ -292,8 +301,13 @@ namespace Disk {
         o["NumThreads"] = _conf.NumThreads;
         o["UseRandomSeed"] = _conf.UseRandomSeed;
         o["Seed"] = _conf.Seed;
-        o["Bounds"] = { {"x", _conf.Bounds.x }, {"y", _conf.Bounds.y } };
-        o["Height"] = _conf.Height;
+        o["Bins"] = json::array();
+        for(const auto& b : _conf.Bins){
+            json be = json::object();
+            be["Bounds"] = { {"x", b.Bounds.x }, {"y", b.Bounds.y } };
+            be["Height"] = b.Height;
+            o["Bins"].push_back(be); 
+        }
         o["BoxType"] = int32_t(_conf.BoxType);
         o["AllowOverlap"] = _conf.AllowOverlap;
         o["EmptryTries"] = _conf.EmptryTries;
