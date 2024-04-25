@@ -261,6 +261,7 @@ namespace Disk {
                 conf.Bins.push_back(bin);
             }
         }
+
         conf.BoxType = (TP::Detail::BoxGenerationType)o["BoxType"].template get<int32_t>();
         conf.AllowOverlap = o["AllowOverlap"].template get<bool>();
         conf.EmptryTries = o["EmptryTries"].template get<uint32_t>();

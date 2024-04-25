@@ -121,8 +121,13 @@ int main() {
 
 
 
-
-
+        ImGui::PushFont(bold);
+        ImGui::Text(std::format("{}s", pr ? pr->getTime() : 0.f).data());
+        ImGui::PopFont();
+        ImGui::Dummy({0, 10});
+        ImGui::Text("Progress");
+        ImGui::ProgressBar(pr ? pr->getPackDensity() : 0.f);
+        pr = std::make_unique<Prmise>(solve(conf));
 
 
         // if(pr) {
@@ -357,7 +362,7 @@ int main() {
             const double temp = 1. - 1. / (conf.MaxBoxVolume - conf.MinBoxVolume) * ((ns.x * ns.y * ns.z) - conf.MinBoxVolume);
             const auto trans = glm::vec<3, float>(e.tf_[3]) + glm::vec<3, float>(bin_delta[e.bin_id_], 0.f, 0.f);
             const Color cc = conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res ? 
-                Color{ eval_res->colmap_[e.id_].r, eval_res->colmap_[e.id_].g,eval_res->colmap_[e.id_].b, 175 } : col(temp);
+                Color{ eval_res->colmap_[e.id_].r, eval_res->colmap_[e.id_].g, eval_res->colmap_[e.id_].b, 175 } : col(temp);
             DrawCubeV(Vector3{ trans.x, trans.z, trans.y }, Vector3{ ns.x, ns.z, ns.y }, cc);
             DrawCubeWiresV(Vector3{ trans.x, trans.z, trans.y }, Vector3{ ns.x, ns.z, ns.y }, BLACK);
         }

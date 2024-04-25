@@ -125,9 +125,6 @@ namespace TP {
             [[nodiscard]] T minWidth() const noexcept { return std::min(max_.x - min_.x, max_.y - min_.y); }
             [[nodiscard]] T getArea() const noexcept { return (max_.x - min_.x) * (max_.y - min_.y); }
             [[nodiscard]] T getAspectRatio() const noexcept { return (max_.x - min_.x) / (max_.y - min_.y); } 
-            //---------------------------
-            int32_t id = -1;
-            int32_t bin_id = 0;
         };//FBox
 
         template<int32_t DIM, class T>
@@ -254,16 +251,28 @@ namespace TP {
         template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
         struct Bin {
 
-            int32_t id_;
+            int32_t id_ = -1;
             //-------------------------
             std::vector<H_T> map_;
             std::unique_ptr<MQT2::MedianQuadTree<H_T, R_T, BS, HA>> tree_;
             //-------------------------
             int32_t N_ = 0;
+            std::atomic<int32_t> bcc_ = 0;
+            std::atomic<double> vol_ = 0.;
             T tot_vol_ = T(0.);
             //-------------------------
-            uint64_t seed_;
+            uint64_t seed_ = 0;
 
+            Bin() = default;
+            Bin(Bin<T, H_T, R_T, BS, HA>&&) = default;
+            Bin<T, H_T, R_T, BS, HA>& operator=(Bin<T, H_T, R_T, BS, HA>&&) = default;
+
+            // kiff alert: dont use these and dont make copies. 
+            // Atomics can't be moved or copied. This works as a default constructor
+            // and are needed for std::vector resize and reserve to work
+            explicit Bin(const Bin<T, H_T, R_T, BS, HA>&) {}   
+            Bin<T, H_T, R_T, BS, HA>& operator=(const Bin<T, H_T, R_T, BS, HA>&) { return *this; }
+            
         };//Bin
 
         //-------------------------
@@ -296,8 +305,7 @@ namespace TP {
             std::chrono::high_resolution_clock::time_point time_end_;
             std::atomic<bool> isDone_ = true;
             std::atomic<bool> terminate_ = false;
-            std::atomic<double> vol_ = 0.;
-            std::atomic<int32_t> bcc_ = 0;
+
             std::atomic<int32_t> mcc_ = 0;
 
             SolverContext(const int32_t _num_threads) : tg_(TaskGraph(_num_threads)) {}
@@ -402,7 +410,7 @@ namespace TP {
         struct Result {
             Topology<T>* topo;
             //-----------
-            int32_t id_;
+            int32_t id;
             int32_t bin;
             bool isRandomBox;
             T weight;
@@ -626,13 +634,19 @@ bool TP::Detail::Promise<T, H_T, R_T, BS, HA>::isDone() const {
 template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
 T TP::Detail::Promise<T, H_T, R_T, BS, HA>::getPackDensity() const {
     assert(context_);
-    return context_->vol_.load() * context_->tot_vol_;
+    float tv = 0.f;
+    for(const auto& b : context_->bins_)
+        tv += b.tot_vol_ * b.vol_.load();
+    return tv;
 }//TP::Detail::Promise::getPackDensity
 
 template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
 uint32_t TP::Detail::Promise<T, H_T, R_T, BS, HA>::getBoxCount() const {
     assert(context_);
-    return context_->bcc_.load();
+    uint32_t c = 0;
+    for(const auto& b : context_->bins_)
+        c += b.bcc_.load();
+    return c;
 }//TP::Detail::Promise::getBoxCount
 
 template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
@@ -674,13 +688,14 @@ TP::Detail::Promise<T, H_T, R_T, BS, HA> TP::solve(TP::Config<T, CF, H_T, R_T, B
     c->terminate_ = false;
 
     Rand rng (_conf.Seed);
-    std::uniform_int_distribution<int32_t> dist;
 
     assert(!_conf.Bins.empty());
-    c->bins_.resize(_conf.Bins.size());
+    c->bins_.reserve(_conf.Bins.size());
     for(size_t i = 0; i < _conf.Bins.size(); ++i){
-        c->bins_[i].id_ = int32_t(i);
-        c->bins_[i].seed_ = dist(rng());
+        Detail::Bin<T, H_T, R_T, BS, HA> b;
+        b.id_ = int32_t(i);
+        b.seed_ = rng();
+        c->bins_[i] = std::move(b);
     }
 
     c->mt_ = std::thread(Detail::run_impl<T, CF, H_T, R_T, BS, HA>, _conf, c);
@@ -714,7 +729,7 @@ void TP::Detail::run_impl(
     for(size_t i = 0; i < _conf.Bins.size(); ++i){
 
         const auto& bc = _conf.Bins[i];
-        const auto& bi = _cont->bins_[i];
+        auto& bi = _cont->bins_[i];
 
         const int32_t ee0 = bc.Bounds.y + 2;
         const int32_t ee1 = bc.Bounds.x + 2;
@@ -757,7 +772,7 @@ void TP::Detail::run_impl(
         const uint32_t bbc = (bi.N_ / Tree::BUCKET_SIZE);
         
         mm[i].resize(bbc * bbc);
-        std::fill(mm.begin(), mm.end(), true);
+        std::fill(mm[i].begin(), mm[i].end(), true);
     }
 
     uint32_t et = 0;
@@ -907,7 +922,7 @@ void TP::Detail::run_impl(
             return _e1.weight < _e2.weight;
         });
 
-        auto& r = res[0];
+        const auto& r = res[0];
 
         for (size_t i = 0; i < next_set.size(); ++i) {
             if (i == r.set_index_) continue;
@@ -920,23 +935,32 @@ void TP::Detail::run_impl(
             glm::vec<3, T>(r.n0 + r.ext.x, r.n1 + r.ext.y, r.h + 2 * r.ext.z)};
 
         Entry<T> e;
-        e.id_ = r.id_;
-        e.bin_id_ = r.bin_;
+        e.id_ = r.id;
+        e.bin_id_ = r.bin;
         e.tf_ = make_transform<T>(r.perm, tar, glm::vec<3, T>(0.), r.ext * T(2.)); 
+
+        const auto& bi = _conf.Bins[e.bin_id_];
+        auto& bn = _cont->bins_[e.bin_id_];
 
         {
             auto& bi = _cont->bins_[e.bin_id_];
             std::lock_guard<std::mutex> lock(_cont->m_data);
             _cont->data_.push_back(e);
-            _cont->bcc_ += 1;
+            bi.bcc_ += 1;
             const auto si = r.ext * T(2.);
             bi.vol_ = bi.vol_ +  si.x * si.y * si.z;
         }
 
-        {
-            const auto& bi = _conf.Bins[e.bin_id_];
+        for (uint32_t n0 = uint32_t(tar.min_.x); n0 < uint32_t(tar.max_.x); ++n0) {
+            for (uint32_t n1 = uint32_t(tar.min_.y); n1 < uint32_t(tar.max_.y); ++n1) {
+                const size_t i = n1 + n0 * bn.N_;
+                bn.map_[i] = tar.max_.z;
+            }
+        }
+
+        {  
             auto& mmm = mm[e.bin_id_];
-            const uint32_t bbc = (bi.N_ / Tree::BUCKET_SIZE);
+            const uint32_t bbc = (bn.N_ / Tree::BUCKET_SIZE);
             std::fill(mmm.begin(), mmm.end(), false);
             for (uint32_t n0 = uint32_t(tar.min_.x) / Tree::BUCKET_SIZE; n0 <= uint32_t(tar.max_.x) / Tree::BUCKET_SIZE; ++n0) {
                 for (uint32_t n1 = uint32_t(tar.min_.y) / Tree::BUCKET_SIZE; n1 <= uint32_t(tar.max_.y) / Tree::BUCKET_SIZE; ++n1) {
@@ -944,16 +968,8 @@ void TP::Detail::run_impl(
                     mmm[iid] = true;
                 }
             }
+            bn.tree_->recompute(mmm);
         }
-
-        for (uint32_t n0 = uint32_t(tar.min_.x); n0 < uint32_t(tar.max_.x); ++n0) {
-            for (uint32_t n1 = uint32_t(tar.min_.y); n1 < uint32_t(tar.max_.y); ++n1) {
-                const size_t i = n1 + n0 * _cont->N_;
-                _cont->map_[i] = tar.max_.z;
-            }
-        }
-
-        _cont->tree_->recompute(mm);
 
     }
 
@@ -980,10 +996,10 @@ void TP::Detail::dispatch_impl(
     const uint32_t _h, TP::Detail::EAxisPerm _perm
 ) {
         auto tr = [=, &_conf, &_res, &_m, &_minc] () -> void {
-        auto ro = overlap_impl<T, CF, H_T, R_T, BS, HA>(_conf, _bin_index, _cont, _ext0, _ext1, _h);
+        auto ro = overlap_impl<T, CF, H_T, R_T, BS, HA>(_conf, _cont, _bin_index,  _ext0, _ext1, _h);
         if (!ro.empty()) {
             for (auto& r : ro) {
-                r.id_ = _id;
+                r.id = _id;
                 r.set_index_ = _set_index;
                 r.ext = glm::vec<3, T>(_ext0, _ext1, _h);
                 r.ext_org = _ext_org;
@@ -1030,19 +1046,19 @@ std::vector<TP::Detail::Result<T>> TP::Detail::overlap_impl(
     for (int32_t n0 = _ext0 + 1; n0 < ee0 - _ext0 - 1; ++n0) {
         for (int32_t n1 = _ext1 + 1; n1 < ee1 - _ext1 - 1; ++n1) {
 
-            const size_t i = n1 + n0 * bi->N_;
-            assert(i < bi->map_.size());
-            if (int32_t(bi->map_[i]) + 2 * _h >= bc.Height) continue;
+            const size_t i = n1 + n0 * bi.N_;
+            assert(i < bi.map_.size());
+            if (int32_t(bi.map_[i]) + 2 * _h >= bc.Height) continue;
 
-            const auto [l1, m1, h1] = bi->tree_->check_overlap(
+            const auto [l1, m1, h1] = bi.tree_->check_overlap(
                 Vec2i{ R_T(n0 - _ext0), R_T(n1 - _ext1) },
                 Vec2i{ R_T(n0 + _ext0), R_T(n1 + _ext1) },
-                bi->map_[i]);
+                bi.map_[i]);
 
-            const auto [l2, m2, h2] = bi->tree_->check_border_overlap(
+            const auto [l2, m2, h2] = bi.tree_->check_border_overlap(
                 Vec2i{ R_T(n0 - _ext0) - 1, R_T(n1 - _ext1) + 1 },
                 Vec2i{ R_T(n0 + _ext0) - 1, R_T(n1 + _ext1) + 1 },
-                bi->map_[i]);
+                bi.map_[i]);
 
             if (_conf.AllowOverlap) {
                 if (h1 != 0) continue;
@@ -1058,7 +1074,7 @@ std::vector<TP::Detail::Result<T>> TP::Detail::overlap_impl(
             out.b_l = l2;
             out.b_m = m2;
             out.b_h = h2;
-            out.h = _cont->map_[i];
+            out.h = bi.map_[i];
 
             res.push_back(out);
         }
