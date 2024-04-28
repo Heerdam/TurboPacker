@@ -296,6 +296,7 @@ namespace TP {
             std::mutex m_data;
 
             std::vector<Bin<T, H_T, R_T, BS, HA>> bins_;
+            T tot_vol_ = T(0.);
 
             uint64_t seed_;
 
@@ -355,10 +356,16 @@ namespace TP {
             [[nodiscard]] bool isDone() const;
 
             //thread safe! returns the current pack density [0, 1]
-            [[nodiscard]] T getPackDensity() const;
+            [[nodiscard]] T getTotalPackDensity() const;
+
+            //thread safe! returns the current pack density [0, 1]
+            [[nodiscard]] T getPackDensity(const size_t _bin) const;
 
             //thread safe!
-            [[nodiscard]] uint32_t getBoxCount() const;
+            [[nodiscard]] uint32_t getTotalBoxCount() const;
+
+            //thread safe!
+            [[nodiscard]] uint32_t getBoxCount(const size_t _bin) const;
 
             //thread safe!
             [[nodiscard]] uint32_t getMissedCount() const;
@@ -476,7 +483,8 @@ namespace TP {
                 const double c3 = std::pow(_r.b_l + _r.b_h, 3);
                 const double c4 = std::pow(_r.l, 3);
                 const double c5 = std::pow(_r.ext.x * _r.ext.y, 2);
-                return c1 + c2 - c3 + c4 - c5;
+                const double c6 = std::pow(double(_r.bin * 10), 3);
+                return c1 + c2 - c3 + c4 - c5 + c6;
              };
         };//CF_Krass
 
@@ -632,21 +640,33 @@ bool TP::Detail::Promise<T, H_T, R_T, BS, HA>::isDone() const {
 }//TP::Detail::Promise::isDone
 
 template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
-T TP::Detail::Promise<T, H_T, R_T, BS, HA>::getPackDensity() const {
+T TP::Detail::Promise<T, H_T, R_T, BS, HA>::getTotalPackDensity() const {
     assert(context_);
     float tv = 0.f;
     for(const auto& b : context_->bins_)
-        tv += b.tot_vol_ * b.vol_.load();
-    return tv;
+        tv += b.vol_.load();
+    return tv * context_->tot_vol_;
 }//TP::Detail::Promise::getPackDensity
 
 template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
-uint32_t TP::Detail::Promise<T, H_T, R_T, BS, HA>::getBoxCount() const {
+T TP::Detail::Promise<T, H_T, R_T, BS, HA>::getPackDensity(const size_t _bin) const {
+    assert(context_);
+    return context_->bins_[_bin].tot_vol_ * context_->bins_[_bin].vol_.load();
+}//TP::Detail::Promise::getPackDensity
+
+template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
+uint32_t TP::Detail::Promise<T, H_T, R_T, BS, HA>::getTotalBoxCount() const {
     assert(context_);
     uint32_t c = 0;
     for(const auto& b : context_->bins_)
         c += b.bcc_.load();
     return c;
+}//TP::Detail::Promise::getBoxCount
+
+template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
+uint32_t TP::Detail::Promise<T, H_T, R_T, BS, HA>::getBoxCount(const size_t _bin) const {
+    assert(context_);
+    return context_->bins_[_bin].bcc_.load();
 }//TP::Detail::Promise::getBoxCount
 
 template<class T, typename H_T, typename R_T, uint32_t BS, typename HA>
@@ -690,7 +710,7 @@ TP::Detail::Promise<T, H_T, R_T, BS, HA> TP::solve(TP::Config<T, CF, H_T, R_T, B
     Rand rng (_conf.Seed);
 
     assert(!_conf.Bins.empty());
-    c->bins_.reserve(_conf.Bins.size());
+    c->bins_.resize(_conf.Bins.size());
     for(size_t i = 0; i < _conf.Bins.size(); ++i){
         Detail::Bin<T, H_T, R_T, BS, HA> b;
         b.id_ = int32_t(i);
@@ -736,7 +756,8 @@ void TP::Detail::run_impl(
 
         ee[i] = { ee0, ee1 };
 
-        bi.tot_vol_ = T(1.) / (bc.Height * bc.Bounds.x * bc.Bounds.y);
+        _cont->tot_vol_ += T(bc.Height * bc.Bounds.x * bc.Bounds.y);
+        bi.tot_vol_ = T(1.) / T(bc.Height * bc.Bounds.x * bc.Bounds.y);
         bi.N_ = Detail::get_power_of_2(std::max(ee0, ee1), Tree::BUCKET_SIZE);
 
         bi.map_.resize(bi.N_ * bi.N_);
@@ -759,6 +780,8 @@ void TP::Detail::run_impl(
         bi.tree_ = std::make_unique<Tree>(bi.map_, bi.N_);
 
     }
+
+    _cont->tot_vol_ = T(1.) / _cont->tot_vol_;
 
     //--------------------------
 

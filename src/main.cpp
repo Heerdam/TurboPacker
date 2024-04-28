@@ -64,22 +64,22 @@ int main() {
     std::unique_ptr<Prmise> pr = nullptr;
     //-------------------------------------
     constexpr float GAP = 25.f;
-    const float bX = std::accumulate(conf.Bins.begin(), conf.Bins.end(), 0.f, [&](const float& _v, const Detail::BinInfo<float>& _b){ return _b.Bounds.x + _v + GAP; });
-    const float bZ = std::accumulate(conf.Bins.begin(), conf.Bins.end(), 0.f, [&](const float& _v, const Detail::BinInfo<float>& _b){ return _b.Bounds.y + _v; });
+    const float bX = std::accumulate(conf.Bins.begin(), conf.Bins.end(), 0.f, [&](const float& _v, const Detail::BinInfo<float>& _b){ return _b.Bounds.x + _v; });
+    const float bZ = std::accumulate(conf.Bins.begin(), conf.Bins.end(), 0.f, [&](const float& _v, const Detail::BinInfo<float>& _b){ return _b.Bounds.y + _v + GAP; });
     std::vector<float> bin_delta;
     const auto rc_bin_deltas = [&]() {
         bin_delta.resize(conf.Bins.size(), 0.f);
         float dt = 0.f;
         for(size_t i = 0; i < bin_delta.size(); ++i){
             bin_delta[i] = dt;
-            dt += GAP + conf.Bins[i].Bounds.x;
+            dt += GAP + conf.Bins[i].Bounds.y;
         }
     };
     rc_bin_deltas();
     //-------------------------------------
     Util::Camera3d camera;
     camera.up = { 0., 1., 0. };
-    camera.target = { bX * 0.5f, 0., bZ * 0.5f };
+    camera.target = { bZ * 0.5f, 0., bX * 0.5f };
     camera.camDist = 250.f;
     camera.tiltAngle = -65.f;
     //-------------------------------------
@@ -116,105 +116,80 @@ int main() {
 
         ImGui_ImplRaylib_NewFrame();
         ImGui::NewFrame();
-        //ImGui::SetNextWindowSize(ImVec2(475, 700), ImGuiCond_FirstUseEver);
         ImGui::Begin("PackerWidget", (bool*)nullptr, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize);
-
-
-
+        //-------------------------------------
         ImGui::PushFont(bold);
         ImGui::Text(std::format("{}s", pr ? pr->getTime() : 0.f).data());
         ImGui::PopFont();
         ImGui::Dummy({0, 10});
         ImGui::Text("Progress");
-        ImGui::ProgressBar(pr ? pr->getPackDensity() : 0.f);
-        pr = std::make_unique<Prmise>(solve(conf));
 
+        {
+            const ImVec2 textSize = ImGui::CalcTextSize("1000");
+            ImGui::BeginChild("ProgressMain", textSize, false);
+            ImGui::Text(std::format("{}", pr ? pr->getTotalBoxCount() : 0).data());
+            ImGui::EndChild();
+            ImGui::SameLine();
+            ImGui::ProgressBar(pr ? pr->getTotalPackDensity() : 0.f);
+            ImGui::Dummy({0, 4}); 
+        }
 
-        // if(pr) {
-        //     ImGui::PushFont(bold);
-        //     ImGui::Text(std::format("{}s", pr->getTime()).data());
-        //     ImGui::PopFont();
-        //     ImGui::Dummy({0, 10});
-        //     ImGui::Text("Progress");
-        //     ImGui::ProgressBar(pr->getPackDensity());
-        //     if(pr->isDone()){
-        //         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.f, 1.f, 0.f, 1.f));
-        //         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
-        //         if(ImGui::Button("Pack", ImVec2(100, 30))) {
-        //             if(conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res == nullptr) {
-        //                 std::cerr << std::format("Generate a solution first!") << std::endl;
-        //             } else if(conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res != nullptr) {
-        //                 Config<float, CostFunction::CF_Krass> cc = conf;
-        //                 cc.BoxType = Detail::BoxGenerationType::LIST;
+        for(size_t i = 0; i < conf.Bins.size(); ++i) {
+            const ImVec2 textSize = ImGui::CalcTextSize("1000");
+            ImGui::BeginChild(std::format("Progress##{}", i).data(), textSize, false);
+            ImGui::Text(std::format("{}", pr ? pr->getBoxCount(i) : 0).data());
+            ImGui::EndChild();
+            ImGui::SameLine();
+            ImGui::ProgressBar(pr ? pr->getPackDensity(i) : 0.f);
+        }
 
-        //                 std::sort(eval_res->decomp_.begin(), eval_res->decomp_.end(), [](const auto& _v1, const auto& _v2){
-        //                     return _v1.first < _v2.first;
-        //                 });
+        //-------------------------------------
+        if(!pr || pr->isDone()){
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.f, 1.f, 0.f, 1.f));
+            if(ImGui::Button("Pack", ImVec2(100, 30))) {
 
-        //                 Detail::BoxList<float> list;
-        //                 list.shuffle_boxes_ = true;
-        //                 //for(const auto& [id, bx] : eval_res->decomp_){
-        //                 //    list.list_.push_back( { {bx.getSize().x, conf.Height - 2.f, bx.getSize().y }, 1, TP::PF_Y_XZ | TP::PF_Y_ZX });
-        //                 //}
-        //                 cc.BoxList = list;
+                if(conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res == nullptr) {
+                    std::cerr << std::format("Generate a solution first!") << std::endl;
+                } else if(conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res != nullptr) {
+                    Config<float, CostFunction::CF_Krass> cc = conf;
+                    cc.BoxType = Detail::BoxGenerationType::LIST;
 
-        //                 pr = std::make_unique<Prmise>(solve(cc));
-        //             } else pr = std::make_unique<Prmise>(solve(conf));
-        //         }
-        //         ImGui::PopStyleColor(2);
-        //     } else {
-        //         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.f, 0.f, 0.0f, 1.f));
-        //         if(ImGui::Button("Stop", ImVec2(100, 30))) {
-        //             pr->stop();
-        //             pr = nullptr;
-        //         }
-        //         ImGui::PopStyleColor(1);
-        //     }
-        // } else {
-        //     ImGui::PushFont(bold);
-        //     ImGui::Text(std::format("{}s", 0.).data());
-        //     ImGui::PopFont();
-        //     ImGui::Dummy({0, 10});
-        //     ImGui::Text("Progress");
-        //     ImGui::ProgressBar(0.f);
-        //     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
-        //     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.f, 1.f, 0.f, 1.f));
-        //     if(ImGui::Button("Pack", ImVec2(100, 30))) {
+                    std::sort(eval_res->decomp_.begin(), eval_res->decomp_.end(), [](const auto& _v1, const auto& _v2){
+                        return _v1.first < _v2.first;
+                    });
 
-        //         if(conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res == nullptr) {
-        //             std::cerr << std::format("Generate a solution first!") << std::endl;
-        //         } else if(conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res != nullptr) {
-        //             Config<float, CostFunction::CF_Krass> cc = conf;
-        //             cc.BoxType = Detail::BoxGenerationType::LIST;
+                    Detail::BoxList<float> list;
+                    list.shuffle_boxes_ = true;
+                    //for(const auto& [id, bx] : eval_res->decomp_){
+                    //    list.list_.push_back( { {bx.getSize().x, conf.Height - 2.f, bx.getSize().y }, 1, TP::PF_Y_XZ | TP::PF_Y_ZX });
+                    //}
+                    cc.BoxList = list;
 
-        //             std::sort(eval_res->decomp_.begin(), eval_res->decomp_.end(), [](const auto& _v1, const auto& _v2){
-        //                 return _v1.first < _v2.first;
-        //             });
+                    pr = std::make_unique<Prmise>(solve(cc));
+                } else pr = std::make_unique<Prmise>(solve(conf));
+                
+            }
+            ImGui::PopStyleColor(2);
 
-        //             Detail::BoxList<float> list;
-        //             list.shuffle_boxes_ = true;
-        //             //for(const auto& [id, bx] : eval_res->decomp_){
-        //             //    list.list_.push_back( { {bx.getSize().x, conf.Height - 2.f, bx.getSize().y }, 1, TP::PF_Y_XZ | TP::PF_Y_ZX });
-        //             //}
-        //             cc.BoxList = list;
+            if(!b.empty()){
+                ImGui::SameLine();
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.f, 0.f, 0.0f, 1.f));
+                if(ImGui::Button("Reset", ImVec2(100, 30))) {
+                    b.clear();
+                    pr = nullptr;
+                }
+                ImGui::PopStyleColor(1); 
+            } 
 
-        //             pr = std::make_unique<Prmise>(solve(cc));
-        //         } else pr = std::make_unique<Prmise>(solve(conf));
-               
-        //     }
-        //     ImGui::PopStyleColor(2);
-        //     ImGui::SameLine();
-        //     if(!b.empty()){
-        //         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.f, 0.f, 0.0f, 1.f));
-        //         if(ImGui::Button("Reset", ImVec2(100, 30))) {
-        //             b.clear();
-        //         }
-        //         ImGui::PopStyleColor(1); 
-        //     } 
-        // }
-
-        //-----------------------------
-
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.f, 0.f, 0.0f, 1.f));
+            if(ImGui::Button("Stop", ImVec2(100, 30))) {
+                pr->stop(); 
+            }
+            ImGui::PopStyleColor(1);
+        }
+        //-------------------------------------
         ImGui::Dummy({0, 10});
         ImGui::Separator();
         ImGui::Dummy({0, 4});
@@ -267,11 +242,22 @@ int main() {
         ImGui::Separator();
         ImGui::Dummy({0, 4});
 
+        if(conf.Bins.size() > 1 && ImGui::Button("-")) {
+            conf.Bins.erase(conf.Bins.end() - 1);
+            rc_bin_deltas();
+        }
+
+        ImGui::SameLine();
+
+        if(ImGui::Button("+")) {
+            conf.Bins.push_back(*(conf.Bins.end() - 1));  
+            rc_bin_deltas();
+        }
+
         for(size_t i = 0; i < conf.Bins.size(); ++i){
-            auto& b = conf.Bins[i];
             ImGui::Text(std::format("Bin {}", i).data());
-            ImGui::InputFloat2("Bounds", glm::value_ptr(b.Bounds));
-            ImGui::InputInt("Height", (int32_t*)&b.Height);
+            ImGui::InputFloat2(std::format("Bounds##{}", i).data(), glm::value_ptr(conf.Bins[i].Bounds));
+            ImGui::InputInt(std::format("Height##{}", i).data(), (int32_t*)&conf.Bins[i].Height);
             ImGui::Dummy({0, 3});
         }
 
