@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <numeric>
 #include <filesystem>
+#include <optional>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/mat4x4.hpp>
@@ -218,16 +219,12 @@ namespace TP {
 
         template<class T>
         class Topology {
-
             std::vector<FBox<3, T>> bxs_;
-
         public:
-
             void push(const FBox<3, T>& _bx);
-            //[[nodiscard]] std::optinal<FBox<3, T>> sample(const glm::vec<T, 3>& _pos) const;
-            //[[nodiscard]] std::optinal<FBox<3, T>> under(const glm::vec<T, 3>& _pos) const;
-            //[[nodiscard]] std::vector<std::pair<bool, FBox<3, T>>> under(const FBox<3, T>& _box) const;
-
+            [[nodiscard]] std::optional<FBox<3, T>> sample(const glm::vec<3, T>& _pos) const;
+            [[nodiscard]] std::optional<FBox<3, T>> under(const glm::vec<3, T>& _pos) const;
+            [[nodiscard]] std::vector<std::pair<bool, FBox<3, T>>> under(const FBox<3, T>& _box) const;
         };//Topology
 
         //-------------------------
@@ -255,6 +252,7 @@ namespace TP {
             //-------------------------
             std::vector<H_T> map_;
             std::unique_ptr<MQT2::MedianQuadTree<H_T, R_T, BS, HA>> tree_;
+            Topology<T> topo_;
             //-------------------------
             int32_t N_ = 0;
             std::atomic<int32_t> bcc_ = 0;
@@ -967,6 +965,7 @@ void TP::Detail::run_impl(
 
         {
             auto& bi = _cont->bins_[e.bin_id_];
+            bi.topo_.push(tar);
             std::lock_guard<std::mutex> lock(_cont->m_data);
             _cont->data_.push_back(e);
             bi.bcc_ += 1;
@@ -1090,6 +1089,7 @@ std::vector<TP::Detail::Result<T>> TP::Detail::overlap_impl(
             }
 
             Result<T> out;
+            out.topo = const_cast<Topology<T>*>(&bi.topo_);
             out.bin = _bin_index;
             out.n0 = n0;
             out.n1 = n1;
@@ -1374,3 +1374,23 @@ void TP::Detail::impl_squarify(
     }
 
 }//Layouter::Detail::SquarifiedTreemap::impl_squarify
+
+template<class T>
+void TP::Detail::Topology<T>::push(const TP::Detail::FBox<3, T>& _bx) {
+    bxs_.push_back(_bx);
+}//TP::Detail::Topology::push
+
+template<class T>
+std::optional<TP::Detail::FBox<3, T>> TP::Detail::Topology<T>::sample(const glm::vec<3, T>& _pos) const {
+    return {};
+}//TP::Detail::Topology::sample
+
+template<class T>
+std::optional<TP::Detail::FBox<3, T>> TP::Detail::Topology<T>::under(const glm::vec<3, T>& _pos) const {
+    return {};
+}//TP::Detail::Topology::under
+
+template<class T>
+std::vector<std::pair<bool, TP::Detail::FBox<3, T>>> TP::Detail::Topology<T>::under(const TP::Detail::FBox<3, T>& _box) const {
+    return {};
+}//TP::Detail::Topology::under

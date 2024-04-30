@@ -52,7 +52,9 @@ int main() {
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; 
     ImFont* regular = io.Fonts->AddFontFromMemoryTTF(Montserrat_Regular_ttf, sizeof(Montserrat_Regular_ttf), 14.f * std::max(scale.x, scale.y));
+    ImFont* regular_l = io.Fonts->AddFontFromMemoryTTF(Montserrat_Regular_ttf, sizeof(Montserrat_Regular_ttf), 16.f * std::max(scale.x, scale.y));
     ImFont* bold = io.Fonts->AddFontFromMemoryTTF(Montserrat_Bold_ttf, sizeof(Montserrat_Bold_ttf), 16.f * std::max(scale.x, scale.y));
+    ImFont* massive = io.Fonts->AddFontFromMemoryTTF(Montserrat_Bold_ttf, sizeof(Montserrat_Bold_ttf), 20.f * std::max(scale.x, scale.y));
     ImGui::StyleColorsDark();
     
     ImGui_ImplRaylib_Init();
@@ -80,7 +82,7 @@ int main() {
     Util::Camera3d camera;
     camera.up = { 0., 1., 0. };
     camera.target = { bZ * 0.5f, 0., bX * 0.5f };
-    camera.camDist = 250.f;
+    camera.camDist = 300.f;
     camera.tiltAngle = -65.f;
     //-------------------------------------
 
@@ -96,7 +98,13 @@ int main() {
         return Color{ R, G, B, 175 };
     };
 
-    const char* str_modes[] = { "Random", "List", "Validate" };
+    const auto col_img = [&](float _scalar) -> ImVec4 {
+        const auto cl = col(_scalar);
+        constexpr float scl = 1.f / 255.f;
+        return ImVec4{ float(cl.r) * scl, float(cl.g) * scl, float(cl.b) * scl, 1.f };
+    };
+
+    const char* str_modes[] = { "Random", "List" }; //, "Validate" };
     int cur_mode = (int)conf.BoxType;
     uint64_t seedval = conf.Seed;
     std::unique_ptr<Util::Detail::EvalRes> eval_res = nullptr;
@@ -118,30 +126,64 @@ int main() {
         ImGui::NewFrame();
         ImGui::Begin("PackerWidget", (bool*)nullptr, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize);
         //-------------------------------------
-        ImGui::PushFont(bold);
-        ImGui::Text(std::format("{}s", pr ? pr->getTime() : 0.f).data());
-        ImGui::PopFont();
-        ImGui::Dummy({0, 10});
-        ImGui::Text("Progress");
 
-        {
-            const ImVec2 textSize = ImGui::CalcTextSize("1000");
-            ImGui::BeginChild("ProgressMain", textSize, false);
+        {//Time label
+            const auto txt = std::format("{}s", pr ? pr->getTime() : 0.f); 
+            const ImVec2 textSize = ImGui::CalcTextSize(txt.data());
+            const float centeredX = (ImGui::GetContentRegionAvail().x - textSize.x) * 0.5f;
+            ImGui::PushFont(massive);
+            if(!pr || pr->isDone()) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 1.0f, 0.0f, 1.0f));
+            else ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
+            ImGui::SetCursorPosX(centeredX);
+            ImGui::Text(txt.data());
+            ImGui::PopStyleColor(1);
+            ImGui::PopFont();
+            ImGui::Dummy({0, 10});
+            ImGui::Separator();
+            ImGui::Dummy({0, 10});
+        }
+
+        {//progress
+            ImGui::PushFont(regular_l);
+            const ImVec2 ts1 = ImGui::CalcTextSize("Total1000");
+            ImGui::BeginChild("TotalMain", ts1, false);
+            ImGui::Text("Total");
+            ImGui::EndChild();
+            ImGui::SameLine();   
+            const ImVec2 ts2 = ImGui::CalcTextSize("1000");
+            ImGui::BeginChild("ProgressMain", ts2, false);
             ImGui::Text(std::format("{}", pr ? pr->getTotalBoxCount() : 0).data());
             ImGui::EndChild();
             ImGui::SameLine();
-            ImGui::ProgressBar(pr ? pr->getTotalPackDensity() : 0.f);
-            ImGui::Dummy({0, 4}); 
+            const float prg = pr ? pr->getTotalPackDensity() : 0.f;
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, col_img(prg));
+            ImGui::ProgressBar(prg);
+            ImGui::PopStyleColor(1);
+            ImGui::PopFont();
+            ImGui::Dummy({0, 6}); 
+
+            //bin progress
+            const ImVec2 ts3 = ImGui::CalcTextSize("1000");
+            for(size_t i = 0; i < conf.Bins.size(); ++i) {
+                ImGui::BeginChild(std::format("Total##{}", i).data(), { ts1.x, ts3.y }, false);
+                ImGui::Text(std::format("Bin {}", i).data());
+                ImGui::EndChild();
+                ImGui::SameLine();
+                const ImVec2 ts4 = ImGui::CalcTextSize("1000");
+                ImGui::BeginChild(std::format("Progress##{}", i).data(), { ts2.x, ts4.y }, false);
+                ImGui::Text(std::format("{}", pr ? pr->getBoxCount(i) : 0).data());
+                ImGui::EndChild();
+                ImGui::SameLine();
+                const float prg = pr ? pr->getPackDensity(i) : 0.f;
+                ImGui::PushStyleColor(ImGuiCol_PlotHistogram, col_img(prg));
+                ImGui::ProgressBar(prg);
+                ImGui::PopStyleColor(1);
+            }
         }
 
-        for(size_t i = 0; i < conf.Bins.size(); ++i) {
-            const ImVec2 textSize = ImGui::CalcTextSize("1000");
-            ImGui::BeginChild(std::format("Progress##{}", i).data(), textSize, false);
-            ImGui::Text(std::format("{}", pr ? pr->getBoxCount(i) : 0).data());
-            ImGui::EndChild();
-            ImGui::SameLine();
-            ImGui::ProgressBar(pr ? pr->getPackDensity(i) : 0.f);
-        }
+        ImGui::Dummy({0, 10});
+        ImGui::Separator();
+        ImGui::Dummy({0, 10});
 
         //-------------------------------------
         if(!pr || pr->isDone()){
@@ -242,6 +284,7 @@ int main() {
         ImGui::Separator();
         ImGui::Dummy({0, 4});
 
+        ImGui::PushFont(massive);
         if(conf.Bins.size() > 1 && ImGui::Button("-")) {
             conf.Bins.erase(conf.Bins.end() - 1);
             rc_bin_deltas();
@@ -253,6 +296,11 @@ int main() {
             conf.Bins.push_back(*(conf.Bins.end() - 1));  
             rc_bin_deltas();
         }
+        ImGui::PopFont();
+
+         ImGui::Dummy({0, 4});
+        ImGui::Separator();
+        ImGui::Dummy({0, 4});
 
         for(size_t i = 0; i < conf.Bins.size(); ++i){
             ImGui::Text(std::format("Bin {}", i).data());
@@ -322,7 +370,7 @@ int main() {
         ClearBackground(RAYWHITE);
 
         BeginMode3D(camera);
-        DrawGrid(100, 5.0f);
+        DrawGrid(100, 10.0f);
 
         for(size_t i = 0; i < conf.Bins.size(); ++i){
 

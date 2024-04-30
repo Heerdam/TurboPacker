@@ -206,7 +206,7 @@ namespace Disk {
         postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)55.5, (T)37., (T)6.}, 100 });
 
         Detail::BinInfo<T> bin;
-        bin.Bounds = {80., 120.}; 
+        bin.Bounds = {120., 80.}; 
         bin.Height = 120.;
 
         TP::Config<T, COSTFUNCTION, HEIGHTMAP_T, R_T, BUCKET_SIZE, HEIGHTMAP_ALLOCATOR> conf;
