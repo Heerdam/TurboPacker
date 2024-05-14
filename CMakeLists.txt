@@ -25,6 +25,7 @@ option(BUILD_AS_LIBRARY "Use as library" FALSE)
 if (NOT BUILD_AS_LIBRARY)
 
 	add_executable( TP_App src/main.cpp )
+	add_executable( TP_Tester src/main_a.cpp )
 
 	# --------------- RAYLIB ---------------
 	message(STATUS "Fetching Raylib...")
@@ -57,6 +58,7 @@ if (NOT BUILD_AS_LIBRARY)
 		)
 		add_library(imgui "${IMGUI_FILES}")
 		target_include_directories(TP_App PUBLIC "${imgui_SOURCE_DIR}")
+		target_include_directories(TP_Tester PUBLIC "${imgui_SOURCE_DIR}")
 	endif()
 
 	# ------------------ RAYGUI ------------------
@@ -74,6 +76,7 @@ if (NOT BUILD_AS_LIBRARY)
 		)
 		add_library(rimgui "${RIMGUI_FILES}")
 		target_include_directories(TP_App PUBLIC "${rimgui_SOURCE_DIR}")
+		target_include_directories(TP_Tester PUBLIC "${rimgui_SOURCE_DIR}")
 	endif()
 	target_include_directories(rimgui PUBLIC "${imgui_SOURCE_DIR}")
 	target_link_libraries(rimgui PUBLIC imgui raylib)
@@ -94,6 +97,7 @@ if (NOT BUILD_AS_LIBRARY)
 
 		add_library(lodepng "${LODEPNG_FILES}")
 		target_include_directories(TP_App PUBLIC "${lodepng_SOURCE_DIR}")
+		target_include_directories(TP_Tester PUBLIC "${lodepng_SOURCE_DIR}")
 	endif()
 
 	# ------------------ JSON ------------------
@@ -126,6 +130,9 @@ FetchContent_MakeAvailable(glm)
 if (NOT BUILD_AS_LIBRARY)
 	target_include_directories(TP_App PUBLIC include )
 	target_link_libraries(TP_App MQT2 glm::glm raylib imgui rimgui lodepng nlohmann_json::nlohmann_json)
+
+	target_include_directories(TP_Tester PUBLIC include )
+	target_link_libraries(TP_Tester MQT2 glm::glm raylib imgui rimgui lodepng nlohmann_json::nlohmann_json)
 endif()
 
 # -----------------------------------------

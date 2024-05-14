@@ -217,6 +217,69 @@ namespace TP {
 
         //-------------------------
 
+        template<class T, bool NEGATIVE_WEIGHTS = true, bool LINEAR = false>
+        class Annealer {
+
+            static_assert(std::is_floating_point_v<T>);
+
+            std::mt19937_64 rand_;
+            std::vector<std::pair<T, T>> weights_;
+            std::vector<std::pair<T, T>> l_weights_;
+
+        public:
+            Annealer() = default;
+            Annealer(const uint64_t _seed, const size_t _weights_count) : rand_(std::mt19937_64(_seed)) {
+                weights_.resize(_weights_count);
+                l_weights_.resize(_weights_count);
+
+                std::uniform_real_distribution<T> dist(NEGATIVE_WEIGHTS ? T(-1.) : T(0.), T(1.));
+                for(size_t i = 0; i < _weights_count; ++i){
+                    weights_[i] = { dist(rand_), T(1.) };
+                }
+            }
+
+            [[nodiscard]] size_t get_size() const noexcept { return weights_.size(); }
+
+            void step(const size_t sub_set_size, const T _max_delta) {
+
+                assert(sub_set_size <= get_size());
+                std::memcpy(l_weights_.data(), weights_.data(), sizeof(std::pair<T, T>) * get_size());
+                std::vector<size_t> is;
+                is.reserve(get_size());
+                for(size_t i = 0; i < get_size(); ++i)
+                    is[i] = i;
+                std::shuffle(is.begin(), is.end(), rand_);
+
+                std::uniform_real_distribution<T> dist(NEGATIVE_WEIGHTS ? -_max_delta : T(0.), _max_delta);
+
+                for(size_t i = 0; i < sub_set_size; ++i){
+                    
+                    if constexpr(LINEAR){
+                        weights_[is[i]] = { std::clamp(weights_[is[i]].first + dist(rand_), NEGATIVE_WEIGHTS ? T(-1.) : T(0.), T(1.)), weights_[is[i]].second };
+                    } else {
+                        weights_[is[i]] = { std::clamp(weights_[is[i]].first + dist(rand_), NEGATIVE_WEIGHTS ? T(-1.) : T(0.), T(1.)), std::clamp(weights_[is[i]].second + dist(rand_), 0.f, 100.f) };
+                    }
+                }
+            }
+
+            void reverse() {
+                std::memcpy(weights_.data(), l_weights_.data(), sizeof(std::pair<T, T>) * get_size());
+            }
+
+            [[nodiscard]] const std::pair<T, T>& operator[](const size_t _idx) const {
+                assert(_idx < get_size());
+                return weights_[_idx];
+            }
+
+            [[nodiscard]] std::vector<std::pair<T, T>> cpy() const { return weights_; }
+            void set(const std::vector<std::pair<T, T>>& _w) {
+                weights_ = l_weights_ = _w;
+            }
+
+        };//Annealer
+
+        //-------------------------
+
         template<class T>
         class Topology {
             std::vector<FBox<3, T>> bxs_;
@@ -412,20 +475,46 @@ namespace TP {
 
         //------------------------- TODO: document those members!!
         template<class T>
+        struct NormalizedResult {
+            T bin;
+            T n0, n1, h;
+            T l, m, b_l, b_m, b_h;
+        };//NormalizedResult
+
+        template<class T>
         struct Result {
+            uint32_t ext0_, ext1_, height_;
+            uint32_t bin_count_;
+            int32_t id;
+            bool isRandomBox;
+            //-----------
             Topology<T>* topo;
             //-----------
-            int32_t id;
-            int32_t bin;
-            bool isRandomBox;
-            T weight;
+            int32_t bin;          
             uint32_t n0, n1, h;
             uint32_t l, b_l, b_m, b_h;
             glm::vec<3, T> ext;
             glm::vec<3, T> ext_org;
             EAxisPerm perm;
             //-----------
+            T weight;
             size_t set_index_; //internal use only
+
+            [[nodiscard]] NormalizedResult<T> normalize() const {
+                NormalizedResult<T> out;
+                out.bin = T(1.) / T(bin_count_) * T(bin);
+                out.n0 = T(1.) / T(ext0_) * T(n0);
+                out.n1 = T(1.) / T(ext1_) * T(n1);
+                out.h = T(1.) / T(height_) * T(h);
+
+                out.h = T(1.) / T(ext.x * ext.y) * T(l);
+                out.m = T(1.) - out.h;
+
+                out.b_l = T(1.) / T(2 * (ext.x + ext.y)) * T(b_l);
+                out.b_m = T(1.) / T(2 * (ext.x + ext.y)) * T(b_m);
+                out.b_h = T(1.) / T(2 * (ext.x + ext.y)) * T(b_h);
+                return out;
+            }
         };//Result
 
         //-------------------------
@@ -1089,6 +1178,10 @@ std::vector<TP::Detail::Result<T>> TP::Detail::overlap_impl(
             }
 
             Result<T> out;
+            out.bin_count_ = _conf.Bins.size();
+            out.ext0_ = bc.Bounds.y;
+            out.ext1_ = bc.Bounds.x;
+            out.height_ = bc.Height;
             out.topo = const_cast<Topology<T>*>(&bi.topo_);
             out.bin = _bin_index;
             out.n0 = n0;
