@@ -217,14 +217,14 @@ namespace TP {
 
         //-------------------------
 
-        template<class T, bool NEGATIVE_WEIGHTS = true, bool LINEAR = false>
+        template<class T, bool NEGATIVE_WEIGHTS = true>
         class Annealer {
 
             static_assert(std::is_floating_point_v<T>);
 
             std::mt19937_64 rand_;
-            std::vector<std::pair<T, T>> weights_;
-            std::vector<std::pair<T, T>> l_weights_;
+            std::vector<T> weights_;
+            std::vector<T> l_weights_;
 
         public:
             Annealer() = default;
@@ -234,7 +234,7 @@ namespace TP {
 
                 std::uniform_real_distribution<T> dist(NEGATIVE_WEIGHTS ? T(-1.) : T(0.), T(1.));
                 for(size_t i = 0; i < _weights_count; ++i){
-                    weights_[i] = { dist(rand_), T(1.) };
+                    weights_[i] = dist(rand_);
                 }
             }
 
@@ -243,7 +243,8 @@ namespace TP {
             void step(const size_t sub_set_size, const T _max_delta) {
 
                 assert(sub_set_size <= get_size());
-                std::memcpy(l_weights_.data(), weights_.data(), sizeof(std::pair<T, T>) * get_size());
+                std::memcpy(l_weights_.data(), weights_.data(), sizeof(T) * get_size());
+
                 std::vector<size_t> is;
                 is.reserve(get_size());
                 for(size_t i = 0; i < get_size(); ++i)
@@ -252,27 +253,31 @@ namespace TP {
 
                 std::uniform_real_distribution<T> dist(NEGATIVE_WEIGHTS ? -_max_delta : T(0.), _max_delta);
 
-                for(size_t i = 0; i < sub_set_size; ++i){
-                    
-                    if constexpr(LINEAR){
-                        weights_[is[i]] = { std::clamp(weights_[is[i]].first + dist(rand_), NEGATIVE_WEIGHTS ? T(-1.) : T(0.), T(1.)), weights_[is[i]].second };
-                    } else {
-                        weights_[is[i]] = { std::clamp(weights_[is[i]].first + dist(rand_), NEGATIVE_WEIGHTS ? T(-1.) : T(0.), T(1.)), std::clamp(weights_[is[i]].second + dist(rand_), 0.f, 100.f) };
-                    }
+                for(size_t i = 0; i < sub_set_size; ++i){  
+                    weights_[is[i]] = weights_[is[i]] + dist(rand_);
+                }
+            }
+
+            void punch_through(const T _min_delta, const T _max_delta) {
+                std::uniform_real_distribution<T> dist(_min_delta, _max_delta);
+                std::uniform_int_distribution<> sign (0, 1);
+                for(size_t i = 0; i < get_size(); ++i){  
+                    weights_[i] = weights_[i] + (sign(rand_) ? 1 : -1) * dist(rand_);
                 }
             }
 
             void reverse() {
-                std::memcpy(weights_.data(), l_weights_.data(), sizeof(std::pair<T, T>) * get_size());
+                std::memcpy(weights_.data(), l_weights_.data(), sizeof(T) * get_size());
             }
 
-            [[nodiscard]] const std::pair<T, T>& operator[](const size_t _idx) const {
+            [[nodiscard]] const T& operator[](const size_t _idx) const {
                 assert(_idx < get_size());
                 return weights_[_idx];
             }
 
-            [[nodiscard]] std::vector<std::pair<T, T>> cpy() const { return weights_; }
-            void set(const std::vector<std::pair<T, T>>& _w) {
+            [[nodiscard]] std::vector<T> cpy() const { return weights_; }
+
+            void set(const std::vector<T>& _w) {
                 weights_ = l_weights_ = _w;
             }
 
