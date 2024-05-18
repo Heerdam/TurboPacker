@@ -234,7 +234,8 @@ namespace TP {
 
                 std::uniform_real_distribution<T> dist(NEGATIVE_WEIGHTS ? T(-1.) : T(0.), T(1.));
                 for(size_t i = 0; i < _weights_count; ++i){
-                    weights_[i] = dist(rand_);
+                    //weights_[i] = dist(rand_);
+                    weights_[i] = T(0.);
                 }
             }
 
@@ -246,10 +247,11 @@ namespace TP {
                 std::memcpy(l_weights_.data(), weights_.data(), sizeof(T) * get_size());
 
                 std::vector<size_t> is;
-                is.reserve(get_size());
+                is.resize(get_size());
                 for(size_t i = 0; i < get_size(); ++i)
                     is[i] = i;
-                std::shuffle(is.begin(), is.end(), rand_);
+
+                std::shuffle(is.begin(), is.end(), std::mt19937_64 (rand_));
 
                 std::uniform_real_distribution<T> dist(NEGATIVE_WEIGHTS ? -_max_delta : T(0.), _max_delta);
 
