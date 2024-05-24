@@ -255,9 +255,11 @@ namespace TP {
 
                 std::uniform_real_distribution<T> dist(NEGATIVE_WEIGHTS ? -_max_delta : T(0.), _max_delta);
 
-                for(size_t i = 0; i < sub_set_size; ++i){  
-                    weights_[is[i]] = weights_[is[i]] + dist(rand_);
-                }
+                //for(size_t i = 0; i < sub_set_size; ++i){  
+                //    weights_[is[i]] = weights_[is[i]] + dist(rand_);
+                //}
+                weights_[1] = weights_[1] + dist(rand_);
+                weights_[2] = weights_[2] + dist(rand_);
             }
 
             void punch_through(const T _min_delta, const T _max_delta) {

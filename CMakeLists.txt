@@ -24,7 +24,7 @@ option(BUILD_AS_LIBRARY "Use as library" FALSE)
 
 if (NOT BUILD_AS_LIBRARY)
 
-	add_executable( TP_App src/main.cpp )
+	add_executable( TP_App src/main_eth.cpp )
 	add_executable( TP_Tester src/main_a.cpp )
 
 	# --------------- RAYLIB ---------------

@@ -87,7 +87,7 @@ int main() {
     conf.Bins[0].Bounds = { 100, 100 };
     conf.Bins[0].Height = 100;
     conf.NumThreads = 8;
-    conf.LookAheadSize = 25;
+    conf.LookAheadSize = 1;
     conf.MinBoxVolume = std::pow(5, 3);
     conf.MaxBoxVolume = std::pow(15, 3);
 
@@ -116,7 +116,7 @@ int main() {
     file << std::format("Validation Seed: {}", sseed) << std::endl;
     file << std::format("Weights: {}, Step: {}, Type: {}, Size: {}, Min: {}, Max: {}", CF_Annealer<float>::inst_->an_.get_size(), w_step, "exp", w_size, w_min, w_max) << std::endl << std::endl;
 
-    if constexpr(true){ //Mean: 0.30294323, Variance: 0.09177472
+    if constexpr(false){ //Mean: 0.30294323, Variance: 0.09177472
         std::cout << "----- CF_Krass -----" << std::endl;
 
         std::mt19937_64 rand (sseed);
@@ -154,6 +154,11 @@ int main() {
         const uint64_t aseed = std::random_device()();
         std::mt19937_64 arand (aseed);
 
+        std::vector<uint64_t> seeds;
+        for(size_t i = 0; i < 500; ++i){
+            seeds.push_back(arand());
+        }
+
         std::vector<float> s_weights = CF_Annealer<float>::inst_->an_.cpy();
         float s_var = 1.f;
         float s_mean = 0.f;
@@ -161,27 +166,27 @@ int main() {
         std::vector<float> last_weights = CF_Annealer<float>::inst_->an_.cpy();
 
         //stochastic gradient descent
-        for(int32_t steps = 0; steps < 10; steps++){
+        for(int32_t steps = 0; steps < 1; steps++){
 
 
             //sample region
             std::vector<float> b_weights = CF_Annealer<float>::inst_->an_.cpy();
             float b_mean = 0.f;
             float b_var = 1.f;
-            for(int32_t r = 0; r < 5; r++){
+            for(int32_t r = 0; r < 100; r++){
 
                 CF_Annealer<float>::inst_->an_.step(w_step, w_size);
 
                 //sample current weights
-                constexpr int32_t smpls = 10;
+                constexpr int32_t smpls = 20;
                 std::vector<float> vls(smpls * 3);
                 for(int32_t ss = 0; ss < smpls; ++ss) {
 
-                    conf.Seed = arand();
+                    conf.Seed = seeds[3*ss];
                     auto prms1 = solve(conf);
-                    conf.Seed = arand();
+                    conf.Seed = seeds[3*ss + 1];
                     auto prms2 = solve(conf);
-                    conf.Seed = arand();
+                    conf.Seed = seeds[3*ss + 2];
                     auto prms3 = solve(conf);
 
                     prms1.wait();
@@ -192,7 +197,7 @@ int main() {
                     vls.push_back(prms2.getTotalPackDensity());
                     vls.push_back(prms3.getTotalPackDensity());
 
-                    std::cout << r << " - " << ss << "                                                                                \r";
+                    std::cout << r << " - " << ss << "                                                                              \r";
 
                 }
 
@@ -211,6 +216,10 @@ int main() {
                 }
 
                 std::cout << std::format("{}, {}, Best: {}, {}                        ", mean, var, b_mean, b_var) << std::endl;
+                
+                for(const float v : CF_Annealer<float>::inst_->an_.cpy() )
+                    file << v << " ";
+                file << std::endl << std::format("{}, {}, Best: {}, {}                        ", mean, var, b_mean, b_var) << std::endl;
    
                 CF_Annealer<float>::inst_->an_.reverse();
             }
@@ -250,6 +259,8 @@ int main() {
         for(float w : s_weights)
             file << w << " ";
         file << std::endl;
+
+        return 0;
         
         //----------------------------------
 

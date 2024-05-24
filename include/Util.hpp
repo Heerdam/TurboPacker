@@ -198,12 +198,12 @@ namespace Disk {
 
         Detail::BoxList<T> postpacs;
         postpacs.shuffle_boxes_ = true;
-        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)28., (T)17.4, (T)10.}, 100 }); 
-        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)35.5, (T)24., (T)12.5}, 100 });
-        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)38., (T)35., (T)16.9}, 100 });
-        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)53.5, (T)28.5, (T)16.5}, 100 });
-        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)39., (T)13., (T)11.}, 100 });
-        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)55.5, (T)37., (T)6.}, 100 });
+        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)28., (T)17.4, (T)10.}, 500 }); 
+        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)35.5, (T)24., (T)12.5}, 500 });
+        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)38., (T)35., (T)16.9}, 500 });
+        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)53.5, (T)28.5, (T)16.5}, 500 });
+        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)39., (T)13., (T)11.}, 500 });
+        postpacs.list_.push_back(TP::Detail::BoxEntry<T>{ glm::vec<3, T>{(T)55.5, (T)37., (T)6.}, 500 });
 
         Detail::BinInfo<T> bin;
         bin.Bounds = {120., 80.}; 
