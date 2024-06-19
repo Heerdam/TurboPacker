@@ -1,7 +1,7 @@
 # TurboPacker
 The TurboPacker is a high level library built upon the the MedianQuadTree (MQT) backend. It allows for simple integration 
 into existing rendering front ends or any other application. It facilitates a rich interface for to pack boxes of various kind into one or multiple bins. <br />
-This library was part of my master thesis. For a exhaustive discussion of the TurboPacker I refere to here.
+This library was part of my master thesis. For a exhaustive discussion of the TurboPacker I refere to [here](https://github.com/Heerdam/Master-Thesis/blob/master/Heerdam_master_thesis_final.pdf).
 
 ## Quick start
 For use as a library add this project with cmake or simply copy the TP.hpp header. Clone the whole project for use as App.  <br />
