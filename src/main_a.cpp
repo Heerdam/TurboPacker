@@ -82,7 +82,7 @@ int main() {
     const auto sseed = std::random_device()();
 
     auto conf = Disk::create_default<float, CF_Annealer, uint16_t, uint32_t, 15, std::allocator<uint16_t>>();
-    conf.BoxType = Detail::BoxGenerationType::LIST;
+    conf.BoxType = Detail::BoxGenerationType::RANDOM;
     conf.CubeRandomBoxes = false;
     conf.Bins[0].Bounds = { 100, 100 };
     conf.Bins[0].Height = 100;
@@ -91,213 +91,526 @@ int main() {
     conf.MinBoxVolume = std::pow(5, 3);
     conf.MaxBoxVolume = std::pow(15, 3);
 
-    auto conf_ref = Disk::create_default<float, TP::CostFunction::CF_Krass, uint16_t, uint32_t, 15, std::allocator<uint16_t>>();
-    conf_ref.BoxType = conf.BoxType;
-    conf_ref.CubeRandomBoxes = conf.CubeRandomBoxes;
-    conf_ref.Bins[0].Bounds = conf.Bins[0].Bounds;
-    conf_ref.Bins[0].Height = conf.Bins[0].Height;
-    conf_ref.NumThreads = conf.NumThreads;
-    conf_ref.LookAheadSize = conf.LookAheadSize;
-    conf_ref.MinBoxVolume = conf.MinBoxVolume;
-    conf_ref.MaxBoxVolume = conf.MaxBoxVolume;
+    constexpr int32_t lh[]  = {1, 5, 25, 50};
+    constexpr int32_t ld[]  = {50, 100, 150, 250};
 
-    //---------------------------------------
+    //random
+    for(int32_t i = 0; i < 4; ++i){
+        for(int32_t j = 0; j < 4; ++j){
 
-    std::cout << "---------------------------" << std::endl;
+            conf.LookAheadSize = lh[i];
 
-    std::ofstream file("../res.txt", std::ios::app);
-    file << std::format("Type: {}", (int32_t(conf.BoxType) ? "List" : "Random")) << std::endl;
-    file << std::format("Bounds: {} x {} x {}", conf.Bins[0].Bounds.x, conf.Bins[0].Bounds.y, conf.Bins[0].Height) << std::endl;
-    file << std::format("Look ahead: {}", conf.LookAheadSize) << std::endl;
-    if(conf.BoxType == Detail::BoxGenerationType::RANDOM) {
-        file << std::boolalpha << std::format("Cube: {}", conf.CubeRandomBoxes) << std::endl;
-        file << std::format("Volume: {}, {}", conf.MinBoxVolume, conf.MaxBoxVolume) << std::endl;
-    }
-    file << std::format("Validation Seed: {}", sseed) << std::endl;
-    file << std::format("Weights: {}, Step: {}, Type: {}, Size: {}, Min: {}, Max: {}", CF_Annealer<float>::inst_->an_.get_size(), w_step, "exp", w_size, w_min, w_max) << std::endl << std::endl;
+            conf.Bins[0].Bounds = { ld[j], ld[j] };
+            conf.Bins[0].Height = ld[j];
 
-    if constexpr(false){ //Mean: 0.30294323, Variance: 0.09177472
-        std::cout << "----- CF_Krass -----" << std::endl;
-
-        std::mt19937_64 rand (sseed);
-
-        float mean = 0.f;
-        float mmin = 1.f;
-        float mmax = 0.f;
-        std::vector<float> vls(150);
-        for(int32_t ss = 0; ss < 150; ++ss) {
-            conf_ref.Seed = rand();
-            auto prms = solve(conf_ref);
-            prms.wait();
-            vls.push_back(prms.getTotalPackDensity());
-            mean += prms.getTotalPackDensity();
-            mmin = std::min(prms.getTotalPackDensity(), mmin);
-            mmax = std::max(prms.getTotalPackDensity(), mmax);
-            std::cout << std::format("Step {}: Time: {}s, Density: {}, Count: {}                     \r", ss, prms.getTime(), prms.getTotalPackDensity(), prms.getTotalBoxCount());
-        }
-        mean /= 150;
-        float var = 0.f;
-        for(int32_t ss = 0; ss < 150; ++ss) {
-            var += std::pow(vls[ss] - mean, 2);
-        }
-        var /= 150;
-        std::cout << std::endl << std::format("Result: {}, Variance: {}", mean, var) << std::endl;
-
-        file << std::format("CF_Krass: Its: {}, Mean: {}, Variance: {} ({}), Bounds: {}, {}", 150, mean, var, std::sqrt(var), mmin, mmax) << std::endl;
-    }
-
-    //---------------------------------------
-    if constexpr(true){
-
-        std::cout << "----- Annealing -----" << std::endl;
-
-        const uint64_t aseed = std::random_device()();
-        std::mt19937_64 arand (aseed);
-
-        std::vector<uint64_t> seeds;
-        for(size_t i = 0; i < 500; ++i){
-            seeds.push_back(arand());
-        }
-
-        std::vector<float> s_weights = CF_Annealer<float>::inst_->an_.cpy();
-        float s_var = 1.f;
-        float s_mean = 0.f;
-
-        std::vector<float> last_weights = CF_Annealer<float>::inst_->an_.cpy();
-
-        //stochastic gradient descent
-        for(int32_t steps = 0; steps < 1; steps++){
-
-
-            //sample region
-            std::vector<float> b_weights = CF_Annealer<float>::inst_->an_.cpy();
-            float b_mean = 0.f;
-            float b_var = 1.f;
-            for(int32_t r = 0; r < 100; r++){
-
-                CF_Annealer<float>::inst_->an_.step(w_step, w_size);
-
-                //sample current weights
-                constexpr int32_t smpls = 20;
-                std::vector<float> vls(smpls * 3);
-                for(int32_t ss = 0; ss < smpls; ++ss) {
-
-                    conf.Seed = seeds[3*ss];
-                    auto prms1 = solve(conf);
-                    conf.Seed = seeds[3*ss + 1];
-                    auto prms2 = solve(conf);
-                    conf.Seed = seeds[3*ss + 2];
-                    auto prms3 = solve(conf);
-
-                    prms1.wait();
-                    prms2.wait();
-                    prms3.wait();
-
-                    vls.push_back(prms1.getTotalPackDensity());
-                    vls.push_back(prms2.getTotalPackDensity());
-                    vls.push_back(prms3.getTotalPackDensity());
-
-                    std::cout << r << " - " << ss << "                                                                              \r";
-
-                }
-
-                const float mean = (float)std::accumulate(vls.begin(), vls.end(), 0.f) / float(smpls * 3);
-                const float var = (float)std::accumulate(vls.begin(), vls.end(), 0.f, [&](float _a, float _b) -> float{
-                        return _a + std::pow(_b - mean, 2);
-                    }) / float(smpls * 3);
-
-                //const float d_mean = std::abs(mean - b_mean);
-                //const float d_var = std::abs(var - b_var);
-
-                if(mean > b_mean && var < b_var){
-                    b_weights = CF_Annealer<float>::inst_->an_.cpy();
-                    b_mean = mean;
-                    b_var = var;
-                }
-
-                std::cout << std::format("{}, {}, Best: {}, {}                        ", mean, var, b_mean, b_var) << std::endl;
-                
-                for(const float v : CF_Annealer<float>::inst_->an_.cpy() )
-                    file << v << " ";
-                file << std::endl << std::format("{}, {}, Best: {}, {}                        ", mean, var, b_mean, b_var) << std::endl;
-   
-                CF_Annealer<float>::inst_->an_.reverse();
-            }
-
-            std::cout << std::format("Step: {}, Mean: {}, Var: {}, Best: {}, {}                               ", steps, b_mean, b_var, s_mean, s_var) << std::endl;
-
-            if(b_mean > s_mean && b_var < s_var){
-                s_weights = b_weights;
-                s_mean = b_mean;
-                s_var = b_var;
-            }
-
-            //gradient to next region
-            std::vector<float> gd;
-            gd.resize(w_count);
-
-            for(size_t i = 0; i < w_count; ++i){
-                gd[i] = (b_weights[i] - last_weights[i]);
-            }
-
-            const float frac = std::accumulate(gd.begin(), gd.end(), 0.f);
-            const float delta = std::uniform_real_distribution<float>(w_min, w_max)(arand);
-            for(size_t i = 0; i < w_count; ++i){
-                gd[i] /= frac;
-                gd[i] *= delta;
-                gd[i] += b_weights[i];
-            }
-
-            CF_Annealer<float>::inst_->an_.set(gd);
-            last_weights = gd;
-
-        }
-
-        std::cout << std::format("Annealing: Seed: {}, Mean: {}, Var: {}", aseed, s_mean, s_var) << std::endl;
-        file << std::format("Annealing: Seed: {}, Mean: {}, Var: {}", aseed, s_mean, s_var) << std::endl;
-        file << "Weights: ";
-        for(float w : s_weights)
-            file << w << " ";
-        file << std::endl;
-
-        return 0;
-        
-        //----------------------------------
-
-        std::cout << std::endl << "----- Validating -----" << std::endl;
-        CF_Annealer<float>::inst_->an_.set(s_weights);
-        std::mt19937_64 rand (sseed);
-
-        float mean = 0.f;
-        float mmin = 1.f;
-        float mmax = 0.f;
-        std::vector<float> vls(150);
-        for(int32_t ss = 0; ss < 150; ++ss) {
-            conf.Seed = rand();
             auto prms = solve(conf);
             prms.wait();
-            mean += prms.getTotalPackDensity();
-            mmin = std::min(prms.getTotalPackDensity(), mmin);
-            mmax = std::max(prms.getTotalPackDensity(), mmax);
-            vls.push_back(prms.getTotalPackDensity());
-            std::cout << std::format("Step {}: Time: {}s, Density: {}, Count: {}                          \r", ss, prms.getTime(), prms.getTotalPackDensity(), prms.getTotalBoxCount());
-        }
-        mean /= 150;
-        float var = 0.f;
-        for(int32_t ss = 0; ss < 150; ++ss) {
-            var += std::pow(vls[ss] - mean, 2);
-        }
-        var /= 150;
-        std::cout << std::endl << std::format("Result: {}, Expected: {}, {}, Variance: {}", mean, s_mean, s_var, var) << std::endl;
-        file << std::format("Validation: Its: {}, Mean: {}, Variance: {}, Bounds: {}, {}", 150, mean, var, mmin, mmax) << std::endl;
 
-        std::cout << std::endl;
+            std::cout << std::format("lh: {}, d: {}, t: {}", lh[i], ld[j], prms.getTime()) << std::endl;
 
+        }
     }
 
-    file << "-------------------------------" << std::endl;
+    std::cout << std::endl;
+    conf.BoxType = Detail::BoxGenerationType::LIST;
 
-    std::cout << "---------------------------" << std::endl;
+    //list
+    for(int32_t i = 0; i < 4; ++i){
+        for(int32_t j = 0; j < 4; ++j){
+
+            conf.LookAheadSize = lh[i];
+
+            conf.Bins[0].Bounds = { ld[j], ld[j] };
+            conf.Bins[0].Height = ld[j];
+
+            auto prms = solve(conf);
+            prms.wait();
+
+            std::cout << std::format("lh: {}, d: {}, t: {}", lh[i], ld[j], prms.getTime()) << std::endl;
+
+        }
+    }
+
+    return 0;
+
+    //----------------------------------------------------------------
+    //----------------------------------------------------------------
+
+    // for(int32_t i = 0; i < 4; ++i){
+
+    //     auto conf_ref = Disk::create_default<float, TP::CostFunction::CF_Constant, uint16_t, uint32_t, 15, std::allocator<uint16_t>>();
+    //     conf_ref.BoxType = conf.BoxType;
+    //     conf_ref.CubeRandomBoxes = conf.CubeRandomBoxes;
+    //     conf_ref.Bins[0].Bounds = conf.Bins[0].Bounds;
+    //     conf_ref.Bins[0].Height = conf.Bins[0].Height;
+    //     conf_ref.NumThreads = conf.NumThreads;
+    //     conf_ref.LookAheadSize = conf.LookAheadSize;
+    //     conf_ref.MinBoxVolume = conf.MinBoxVolume;
+    //     conf_ref.MaxBoxVolume = conf.MaxBoxVolume;
+    //     conf_ref.LookAheadSize = lh[i];
+
+    //     //---------------------------------------
+
+    //     std::cout << "---------------------------" << std::endl;
+
+    //     std::ofstream file("../res_1.txt", std::ios::app);
+    //     //file << std::format("Type: {}", (int32_t(conf.BoxType) ? "List" : "Random")) << std::endl;
+    //     //file << std::format("Bounds: {} x {} x {}", conf.Bins[0].Bounds.x, conf.Bins[0].Bounds.y, conf.Bins[0].Height) << std::endl;
+    //     //file << std::format("Look ahead: {}", conf.LookAheadSize) << std::endl;
+    //     //if(conf.BoxType == Detail::BoxGenerationType::RANDOM) {
+    //     //    file << std::boolalpha << std::format("Cube: {}", conf.CubeRandomBoxes) << std::endl;
+    //     //    file << std::format("Volume: {}, {}", conf.MinBoxVolume, conf.MaxBoxVolume) << std::endl;
+    //     //}
+    //     //file << std::format("Validation Seed: {}", sseed) << std::endl;
+    //     //file << std::format("Weights: {}, Step: {}, Type: {}, Size: {}, Min: {}, Max: {}", CF_Annealer<float>::inst_->an_.get_size(), w_step, "exp", w_size, w_min, w_max) << std::endl << std::endl;
+
+    
+    //     if constexpr(true){ //Mean: 0.30294323, Variance: 0.09177472
+    //         std::cout << "----- CF_Krass -----" << std::endl;
+
+    //         std::mt19937_64 rand (sseed);
+
+    //         float mean = 0.f;
+    //         float mmin = 1.f;
+    //         float mmax = 0.f;
+    //         std::vector<float> vls;
+    //         for(int32_t ss = 0; ss < 150; ++ss) {
+    //             conf_ref.Seed = rand();
+    //             auto prms = solve(conf_ref);
+    //             prms.wait();
+    //             vls.push_back(prms.getTotalPackDensity());
+    //             mean += prms.getTotalPackDensity();
+    //             mmin = std::min(prms.getTotalPackDensity(), mmin);
+    //             mmax = std::max(prms.getTotalPackDensity(), mmax);
+    //             //file << std::format("{}", prms.getTotalPackDensity()) << std::endl;
+    //             std::cout << std::format("Step {}: Time: {}s, Density: {}, Count: {}                     \r", ss, prms.getTime(), prms.getTotalPackDensity(), prms.getTotalBoxCount());
+    //         }
+    //         mean /= 150;
+    //         float var = 0.f;
+    //         for(int32_t ss = 0; ss < 150; ++ss) {
+    //             var += std::pow(vls[ss] - mean, 2);
+    //         }
+    //         var /= 150;
+    //         std::cout << std::endl << std::format("Result: {}, Variance: {}", mean, var) << std::endl;
+
+    //         file << std::format("CF_Constant: Look ahead: {}, Mean: {}, Variance: {}", lh[i], mean, var) << std::endl;
+    //     }
+    // }
+    //----------------------------------------------------------------
+    //----------------------------------------------------------------
+
+    // for(int32_t i = 0; i < 4; ++i){
+
+    //     auto conf_ref = Disk::create_default<float, TP::CostFunction::CF_BottomLeft, uint16_t, uint32_t, 15, std::allocator<uint16_t>>();
+    //     conf_ref.BoxType = conf.BoxType;
+    //     conf_ref.CubeRandomBoxes = conf.CubeRandomBoxes;
+    //     conf_ref.Bins[0].Bounds = conf.Bins[0].Bounds;
+    //     conf_ref.Bins[0].Height = conf.Bins[0].Height;
+    //     conf_ref.NumThreads = conf.NumThreads;
+    //     conf_ref.LookAheadSize = conf.LookAheadSize;
+    //     conf_ref.MinBoxVolume = conf.MinBoxVolume;
+    //     conf_ref.MaxBoxVolume = conf.MaxBoxVolume;
+    //     conf_ref.LookAheadSize = lh[i];
+
+    //     //---------------------------------------
+
+    //     std::cout << "---------------------------" << std::endl;
+
+    //     std::ofstream file("../res_1.txt", std::ios::app);
+    //     // file << std::format("Type: {}", (int32_t(conf.BoxType) ? "List" : "Random")) << std::endl;
+    //     // file << std::format("Bounds: {} x {} x {}", conf.Bins[0].Bounds.x, conf.Bins[0].Bounds.y, conf.Bins[0].Height) << std::endl;
+    //     // file << std::format("Look ahead: {}", conf.LookAheadSize) << std::endl;
+    //     // if(conf.BoxType == Detail::BoxGenerationType::RANDOM) {
+    //     //     file << std::boolalpha << std::format("Cube: {}", conf.CubeRandomBoxes) << std::endl;
+    //     //     file << std::format("Volume: {}, {}", conf.MinBoxVolume, conf.MaxBoxVolume) << std::endl;
+    //     // }
+    //     // file << std::format("Validation Seed: {}", sseed) << std::endl;
+    //     // file << std::format("Weights: {}, Step: {}, Type: {}, Size: {}, Min: {}, Max: {}", CF_Annealer<float>::inst_->an_.get_size(), w_step, "exp", w_size, w_min, w_max) << std::endl << std::endl;
+
+    
+    //     if constexpr(true){ //Mean: 0.30294323, Variance: 0.09177472
+    //         std::cout << "----- CF_Krass -----" << std::endl;
+
+    //         std::mt19937_64 rand (sseed);
+
+    //         float mean = 0.f;
+    //         float mmin = 1.f;
+    //         float mmax = 0.f;
+    //         std::vector<float> vls;
+    //         for(int32_t ss = 0; ss < 150; ++ss) {
+    //             conf_ref.Seed = rand();
+    //             auto prms = solve(conf_ref);
+    //             prms.wait();
+    //             vls.push_back(prms.getTotalPackDensity());
+    //             mean += prms.getTotalPackDensity();
+    //             mmin = std::min(prms.getTotalPackDensity(), mmin);
+    //             mmax = std::max(prms.getTotalPackDensity(), mmax);
+    //             //file << std::format("{}", prms.getTotalPackDensity()) << std::endl;
+    //             std::cout << std::format("Step {}: Time: {}s, Density: {}, Count: {}                     \r", ss, prms.getTime(), prms.getTotalPackDensity(), prms.getTotalBoxCount());
+    //         }
+    //         mean /= 150;
+    //         float var = 0.f;
+    //         for(int32_t ss = 0; ss < 150; ++ss) {
+    //             var += std::pow(vls[ss] - mean, 2);
+    //         }
+    //         var /= 150;
+    //         std::cout << std::endl << std::format("Result: {}, Variance: {}", mean, var) << std::endl;
+
+    //         file << std::format("CF_BottomLeft: Look ahead: {}, Mean: {}, Variance: {}", lh[i], mean, var) << std::endl;
+    //     }
+    // }
+
+    // //----------------------------------------------------------------
+    // //----------------------------------------------------------------
+
+    // for(int32_t i = 0; i < 4; ++i){
+
+    //     auto conf_ref = Disk::create_default<float, TP::CostFunction::CF_BottomLeftHeight, uint16_t, uint32_t, 15, std::allocator<uint16_t>>();
+    //     conf_ref.BoxType = conf.BoxType;
+    //     conf_ref.CubeRandomBoxes = conf.CubeRandomBoxes;
+    //     conf_ref.Bins[0].Bounds = conf.Bins[0].Bounds;
+    //     conf_ref.Bins[0].Height = conf.Bins[0].Height;
+    //     conf_ref.NumThreads = conf.NumThreads;
+    //     conf_ref.LookAheadSize = conf.LookAheadSize;
+    //     conf_ref.MinBoxVolume = conf.MinBoxVolume;
+    //     conf_ref.MaxBoxVolume = conf.MaxBoxVolume;
+    //     conf_ref.LookAheadSize = lh[i];
+
+    //     //---------------------------------------
+
+    //     std::cout << "---------------------------" << std::endl;
+
+    //     std::ofstream file("../res_1.txt", std::ios::app);
+    //     // file << std::format("Type: {}", (int32_t(conf.BoxType) ? "List" : "Random")) << std::endl;
+    //     // file << std::format("Bounds: {} x {} x {}", conf.Bins[0].Bounds.x, conf.Bins[0].Bounds.y, conf.Bins[0].Height) << std::endl;
+    //     // file << std::format("Look ahead: {}", conf.LookAheadSize) << std::endl;
+    //     // if(conf.BoxType == Detail::BoxGenerationType::RANDOM) {
+    //     //     file << std::boolalpha << std::format("Cube: {}", conf.CubeRandomBoxes) << std::endl;
+    //     //     file << std::format("Volume: {}, {}", conf.MinBoxVolume, conf.MaxBoxVolume) << std::endl;
+    //     // }
+    //     // file << std::format("Validation Seed: {}", sseed) << std::endl;
+    //     // file << std::format("Weights: {}, Step: {}, Type: {}, Size: {}, Min: {}, Max: {}", CF_Annealer<float>::inst_->an_.get_size(), w_step, "exp", w_size, w_min, w_max) << std::endl << std::endl;
+
+    
+    //     if constexpr(true){ //Mean: 0.30294323, Variance: 0.09177472
+    //         std::cout << "----- CF_Krass -----" << std::endl;
+
+    //         std::mt19937_64 rand (sseed);
+
+    //         float mean = 0.f;
+    //         float mmin = 1.f;
+    //         float mmax = 0.f;
+    //         std::vector<float> vls;
+    //         for(int32_t ss = 0; ss < 150; ++ss) {
+    //             conf_ref.Seed = rand();
+    //             auto prms = solve(conf_ref);
+    //             prms.wait();
+    //             vls.push_back(prms.getTotalPackDensity());
+    //             mean += prms.getTotalPackDensity();
+    //             mmin = std::min(prms.getTotalPackDensity(), mmin);
+    //             mmax = std::max(prms.getTotalPackDensity(), mmax);
+    //             //file << std::format("{}", prms.getTotalPackDensity()) << std::endl;
+    //             std::cout << std::format("Step {}: Time: {}s, Density: {}, Count: {}                     \r", ss, prms.getTime(), prms.getTotalPackDensity(), prms.getTotalBoxCount());
+    //         }
+    //         mean /= 150;
+    //         float var = 0.f;
+    //         for(int32_t ss = 0; ss < 150; ++ss) {
+    //             var += std::pow(vls[ss] - mean, 2);
+    //         }
+    //         var /= 150;
+    //         std::cout << std::endl << std::format("Result: {}, Variance: {}", mean, var) << std::endl;
+
+    //         file << std::format("CF_BottomLeftHeight: Look ahead: {}, Mean: {}, Variance: {}", lh[i], mean, var) << std::endl;
+    //     }
+    // }
+
+    // //----------------------------------------------------------------
+    // //----------------------------------------------------------------
+
+    // for(int32_t i = 0; i < 4; ++i){
+
+    //     auto conf_ref = Disk::create_default<float, TP::CostFunction::CF_Krass, uint16_t, uint32_t, 15, std::allocator<uint16_t>>();
+    //     conf_ref.BoxType = conf.BoxType;
+    //     conf_ref.CubeRandomBoxes = conf.CubeRandomBoxes;
+    //     conf_ref.Bins[0].Bounds = conf.Bins[0].Bounds;
+    //     conf_ref.Bins[0].Height = conf.Bins[0].Height;
+    //     conf_ref.NumThreads = conf.NumThreads;
+    //     conf_ref.LookAheadSize = conf.LookAheadSize;
+    //     conf_ref.MinBoxVolume = conf.MinBoxVolume;
+    //     conf_ref.MaxBoxVolume = conf.MaxBoxVolume;
+    //     conf_ref.LookAheadSize = lh[i];
+
+    //     //---------------------------------------
+
+    //     std::cout << "---------------------------" << std::endl;
+
+    //     std::ofstream file("../res_1.txt", std::ios::app);
+    //     // file << std::format("Type: {}", (int32_t(conf.BoxType) ? "List" : "Random")) << std::endl;
+    //     // file << std::format("Bounds: {} x {} x {}", conf.Bins[0].Bounds.x, conf.Bins[0].Bounds.y, conf.Bins[0].Height) << std::endl;
+    //     // file << std::format("Look ahead: {}", conf.LookAheadSize) << std::endl;
+    //     // if(conf.BoxType == Detail::BoxGenerationType::RANDOM) {
+    //     //     file << std::boolalpha << std::format("Cube: {}", conf.CubeRandomBoxes) << std::endl;
+    //     //     file << std::format("Volume: {}, {}", conf.MinBoxVolume, conf.MaxBoxVolume) << std::endl;
+    //     // }
+    //     // file << std::format("Validation Seed: {}", sseed) << std::endl;
+    //     // file << std::format("Weights: {}, Step: {}, Type: {}, Size: {}, Min: {}, Max: {}", CF_Annealer<float>::inst_->an_.get_size(), w_step, "exp", w_size, w_min, w_max) << std::endl << std::endl;
+
+    
+    //     if constexpr(true){ //Mean: 0.30294323, Variance: 0.09177472
+    //         std::cout << "----- CF_Krass -----" << std::endl;
+
+    //         std::mt19937_64 rand (sseed);
+
+    //         float mean = 0.f;
+    //         float mmin = 1.f;
+    //         float mmax = 0.f;
+    //         std::vector<float> vls;
+    //         for(int32_t ss = 0; ss < 150; ++ss) {
+    //             conf_ref.Seed = rand();
+    //             auto prms = solve(conf_ref);
+    //             prms.wait();
+    //             vls.push_back(prms.getTotalPackDensity());
+    //             mean += prms.getTotalPackDensity();
+    //             mmin = std::min(prms.getTotalPackDensity(), mmin);
+    //             mmax = std::max(prms.getTotalPackDensity(), mmax);
+    //             //file << std::format("{}", prms.getTotalPackDensity()) << std::endl;
+    //             std::cout << std::format("Step {}: Time: {}s, Density: {}, Count: {}                     \r", ss, prms.getTime(), prms.getTotalPackDensity(), prms.getTotalBoxCount());
+    //         }
+    //         mean /= 150;
+    //         float var = 0.f;
+    //         for(int32_t ss = 0; ss < 150; ++ss) {
+    //             var += std::pow(vls[ss] - mean, 2);
+    //         }
+    //         var /= 150;
+    //         std::cout << std::endl << std::format("Result: {}, Variance: {}", mean, var) << std::endl;
+
+    //         file << std::format("CF_Krass: Look ahead: {}, Mean: {}, Variance: {}", lh[i], mean, var) << std::endl;
+    //     }
+    // }
+
+    // for(int32_t i = 0; i < 4; ++i){
+
+    //     auto conf_ref = Disk::create_default<float, CF_Custom_1, uint16_t, uint32_t, 15, std::allocator<uint16_t>>();
+    //     conf_ref.BoxType = conf.BoxType;
+    //     conf_ref.CubeRandomBoxes = conf.CubeRandomBoxes;
+    //     conf_ref.Bins[0].Bounds = conf.Bins[0].Bounds;
+    //     conf_ref.Bins[0].Height = conf.Bins[0].Height;
+    //     conf_ref.NumThreads = conf.NumThreads;
+    //     conf_ref.LookAheadSize = conf.LookAheadSize;
+    //     conf_ref.MinBoxVolume = conf.MinBoxVolume;
+    //     conf_ref.MaxBoxVolume = conf.MaxBoxVolume;
+    //     conf_ref.LookAheadSize = lh[i];
+
+    //     //---------------------------------------
+
+    //     std::cout << "---------------------------" << std::endl;
+
+    //     std::ofstream file("../res_1.txt", std::ios::app);
+    //     // file << std::format("Type: {}", (int32_t(conf.BoxType) ? "List" : "Random")) << std::endl;
+    //     // file << std::format("Bounds: {} x {} x {}", conf.Bins[0].Bounds.x, conf.Bins[0].Bounds.y, conf.Bins[0].Height) << std::endl;
+    //     // file << std::format("Look ahead: {}", conf.LookAheadSize) << std::endl;
+    //     // if(conf.BoxType == Detail::BoxGenerationType::RANDOM) {
+    //     //     file << std::boolalpha << std::format("Cube: {}", conf.CubeRandomBoxes) << std::endl;
+    //     //     file << std::format("Volume: {}, {}", conf.MinBoxVolume, conf.MaxBoxVolume) << std::endl;
+    //     // }
+    //     // file << std::format("Validation Seed: {}", sseed) << std::endl;
+    //     // file << std::format("Weights: {}, Step: {}, Type: {}, Size: {}, Min: {}, Max: {}", CF_Annealer<float>::inst_->an_.get_size(), w_step, "exp", w_size, w_min, w_max) << std::endl << std::endl;
+
+    
+    //     if constexpr(true){ //Mean: 0.30294323, Variance: 0.09177472
+    //         std::cout << "----- CF_Krass -----" << std::endl;
+
+    //         std::mt19937_64 rand (sseed);
+
+    //         float mean = 0.f;
+    //         float mmin = 1.f;
+    //         float mmax = 0.f;
+    //         std::vector<float> vls;
+    //         for(int32_t ss = 0; ss < 150; ++ss) {
+    //             conf_ref.Seed = rand();
+    //             auto prms = solve(conf_ref);
+    //             prms.wait();
+    //             vls.push_back(prms.getTotalPackDensity());
+    //             mean += prms.getTotalPackDensity();
+    //             mmin = std::min(prms.getTotalPackDensity(), mmin);
+    //             mmax = std::max(prms.getTotalPackDensity(), mmax);
+    //             //file << std::format("{}", prms.getTotalPackDensity()) << std::endl;
+    //             std::cout << std::format("Step {}: Time: {}s, Density: {}, Count: {}                     \r", ss, prms.getTime(), prms.getTotalPackDensity(), prms.getTotalBoxCount());
+    //         }
+    //         mean /= 150;
+    //         float var = 0.f;
+    //         for(int32_t ss = 0; ss < 150; ++ss) {
+    //             var += std::pow(vls[ss] - mean, 2);
+    //         }
+    //         var /= 150;
+    //         std::cout << std::endl << std::format("Result: {}, Variance: {}", mean, var) << std::endl;
+
+    //         file << std::format("CF_Krass: Look ahead: {}, Mean: {}, Variance: {}", lh[i], mean, var) << std::endl;
+    //     }
+    // }
+
+
+
+
+
+
+
+
+
+    // std::ofstream file("../res_2.txt", std::ios::app);
+
+    // //---------------------------------------
+    // if constexpr(false){
+
+    //     std::cout << "----- Annealing -----" << std::endl;
+
+    //     const uint64_t aseed = std::random_device()();
+    //     std::mt19937_64 arand (aseed);
+
+    //     std::vector<uint64_t> seeds;
+    //     for(size_t i = 0; i < 500; ++i){
+    //         seeds.push_back(arand());
+    //     }
+
+    //     std::vector<float> s_weights = CF_Annealer<float>::inst_->an_.cpy();
+    //     float s_var = 1.f;
+    //     float s_mean = 0.f;
+
+    //     std::vector<float> last_weights = CF_Annealer<float>::inst_->an_.cpy();
+
+    //     //stochastic gradient descent
+    //     for(int32_t steps = 0; steps < 1; steps++){
+
+
+    //         //sample region
+    //         std::vector<float> b_weights = CF_Annealer<float>::inst_->an_.cpy();
+    //         float b_mean = 0.f;
+    //         float b_var = 1.f;
+    //         for(int32_t r = 0; r < 100; r++){
+
+    //             CF_Annealer<float>::inst_->an_.step(w_step, w_size);
+
+    //             //sample current weights
+    //             constexpr int32_t smpls = 20;
+    //             std::vector<float> vls;
+    //             for(int32_t ss = 0; ss < smpls; ++ss) {
+
+    //                 conf.Seed = seeds[3*ss];
+    //                 auto prms1 = solve(conf);
+    //                 conf.Seed = seeds[3*ss + 1];
+    //                 auto prms2 = solve(conf);
+    //                 conf.Seed = seeds[3*ss + 2];
+    //                 auto prms3 = solve(conf);
+
+    //                 prms1.wait();
+    //                 prms2.wait();
+    //                 prms3.wait();
+
+    //                 vls.push_back(prms1.getTotalPackDensity());
+    //                 vls.push_back(prms2.getTotalPackDensity());
+    //                 vls.push_back(prms3.getTotalPackDensity());
+
+    //                 std::cout << r << " - " << ss << "                                                                              \r";
+
+    //             }
+
+    //             const float mean = (float)std::accumulate(vls.begin(), vls.end(), 0.f) / float(smpls * 3);
+    //             const float var = (float)std::accumulate(vls.begin(), vls.end(), 0.f, [&](float _a, float _b) -> float{
+    //                     return _a + std::pow(_b - mean, 2);
+    //                 }) / float(smpls * 3);
+
+    //             //const float d_mean = std::abs(mean - b_mean);
+    //             //const float d_var = std::abs(var - b_var);
+
+    //             if(mean > b_mean && var < b_var){
+    //                 b_weights = CF_Annealer<float>::inst_->an_.cpy();
+    //                 b_mean = mean;
+    //                 b_var = var;
+    //             }
+
+    //             std::cout << std::format("{}, {}, Best: {}, {}                        ", mean, var, b_mean, b_var) << std::endl;
+                
+    //             for(const float v : CF_Annealer<float>::inst_->an_.cpy() )
+    //                 file << v << " ";
+    //             file << std::endl << std::format("{}, {}, Best: {}, {}                        ", mean, var, b_mean, b_var) << std::endl;
+   
+    //             CF_Annealer<float>::inst_->an_.reverse();
+    //         }
+
+    //         std::cout << std::format("Step: {}, Mean: {}, Var: {}, Best: {}, {}                               ", steps, b_mean, b_var, s_mean, s_var) << std::endl;
+
+    //         if(b_mean > s_mean && b_var < s_var){
+    //             s_weights = b_weights;
+    //             s_mean = b_mean;
+    //             s_var = b_var;
+    //         }
+
+    //         //gradient to next region
+    //         std::vector<float> gd;
+    //         gd.resize(w_count);
+
+    //         for(size_t i = 0; i < w_count; ++i){
+    //             gd[i] = (b_weights[i] - last_weights[i]);
+    //         }
+
+    //         const float frac = std::accumulate(gd.begin(), gd.end(), 0.f);
+    //         const float delta = std::uniform_real_distribution<float>(w_min, w_max)(arand);
+    //         for(size_t i = 0; i < w_count; ++i){
+    //             gd[i] /= frac;
+    //             gd[i] *= delta;
+    //             gd[i] += b_weights[i];
+    //         }
+
+    //         CF_Annealer<float>::inst_->an_.set(gd);
+    //         last_weights = gd;
+
+    //     }
+
+    //     std::cout << std::format("Annealing: Seed: {}, Mean: {}, Var: {}", aseed, s_mean, s_var) << std::endl;
+    //     file << std::format("Annealing: Seed: {}, Mean: {}, Var: {}", aseed, s_mean, s_var) << std::endl;
+    //     file << "Weights: ";
+    //     for(float w : s_weights)
+    //         file << w << " ";
+    //     file << std::endl;
+
+    //     return 0;
+        
+    //     //----------------------------------
+
+    //     std::cout << std::endl << "----- Validating -----" << std::endl;
+    //     CF_Annealer<float>::inst_->an_.set(s_weights);
+    //     std::mt19937_64 rand (sseed);
+
+    //     float mean = 0.f;
+    //     float mmin = 1.f;
+    //     float mmax = 0.f;
+    //     std::vector<float> vls;
+    //     for(int32_t ss = 0; ss < 150; ++ss) {
+    //         conf.Seed = rand();
+    //         auto prms = solve(conf);
+    //         prms.wait();
+    //         mean += prms.getTotalPackDensity();
+    //         mmin = std::min(prms.getTotalPackDensity(), mmin);
+    //         mmax = std::max(prms.getTotalPackDensity(), mmax);
+    //         vls.push_back(prms.getTotalPackDensity());
+    //         std::cout << std::format("Step {}: Time: {}s, Density: {}, Count: {}                          \r", ss, prms.getTime(), prms.getTotalPackDensity(), prms.getTotalBoxCount());
+    //     }
+    //     mean /= 150;
+    //     float var = 0.f;
+    //     for(int32_t ss = 0; ss < 150; ++ss) {
+    //         var += std::pow(vls[ss] - mean, 2);
+    //     }
+    //     var /= 150;
+    //     std::cout << std::endl << std::format("Result: {}, Expected: {}, {}, Variance: {}", mean, s_mean, s_var, var) << std::endl;
+    //     file << std::format("Validation: Its: {}, Mean: {}, Variance: {}, Bounds: {}, {}", 150, mean, var, mmin, mmax) << std::endl;
+
+    //     std::cout << std::endl;
+
+    // }
+
+    // file << "-------------------------------" << std::endl;
+
+    // std::cout << "---------------------------" << std::endl;
 
     return EXIT_SUCCESS;
 }

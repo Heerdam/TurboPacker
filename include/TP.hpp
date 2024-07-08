@@ -394,12 +394,14 @@ namespace TP {
             std::unique_ptr<SolverContext<T, H_T, R_T, BS, HA>> context_;      
             //-------------
             Promise() = default;
+            
             //-------------
             template<typename T_, template<typename> class CF_, typename H_T_, typename R_T_, uint32_t BS_, typename HA_>
             friend Promise<T_, H_T_, R_T_, BS_, HA_> TP::solve(::TP::Config<T_, CF_, H_T_, R_T_, BS_, HA_>& _conf);
         
         public:
 
+            //~Promise() { stop(); }
             Promise(Promise&&) = default;
             Promise(const Promise&) = delete;
             Promise& operator=(Promise&&) = default;
@@ -482,7 +484,6 @@ namespace TP {
 
         };//BinInfo
 
-        //------------------------- TODO: document those members!!
         template<class T>
         struct NormalizedResult {
             T bin;
@@ -497,7 +498,7 @@ namespace TP {
             int32_t id;
             bool isRandomBox;
             //-----------
-            Topology<T>* topo;
+            Topology<T>* topo; //dont use. not implemented yet
             //-----------
             int32_t bin;          
             uint32_t n0, n1, h;
@@ -632,7 +633,7 @@ namespace TP {
 
         //--------------------------
 
-        //
+        //bit flags to control the permutations [default: All]
         uint32_t AllowedPermutations = PF_ALL;
 
         //if the random boxes should be cubes [default: true]
@@ -950,7 +951,7 @@ void TP::Detail::run_impl(
             break;
             case BoxGenerationType::LIST:
             {
-                for (uint32_t i = 0; i < _conf.LookAheadSize; ++i) {
+                for (uint32_t i = 0; i < _conf.LookAheadSize; ++i) { //TODO humungose bögg lookahead und random
                     if (next_q.empty()) break;
                     const auto& [bb, pp, ii] = next_q.front();
                     next_set.push_back({ bb * T(0.5), pp, ii });

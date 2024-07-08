@@ -35,6 +35,7 @@ int main() {
     }
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE); 
+    SetConfigFlags(FLAG_MSAA_4X_HINT); 
     InitWindow(wind_w, wind_h, "TurboPacker");
 
     Image logo;
@@ -104,7 +105,7 @@ int main() {
         return ImVec4{ float(cl.r) * scl, float(cl.g) * scl, float(cl.b) * scl, 1.f };
     };
 
-    const char* str_modes[] = { "Random", "List" }; //, "Validate" };
+    const char* str_modes[] = { "Random", "List", "Validate" };
     int cur_mode = (int)conf.BoxType;
     uint64_t seedval = conf.Seed;
     std::unique_ptr<Util::Detail::EvalRes> eval_res = nullptr;
@@ -194,7 +195,10 @@ int main() {
                 if(conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res == nullptr) {
                     std::cerr << std::format("Generate a solution first!") << std::endl;
                 } else if(conf.BoxType == Detail::BoxGenerationType::VALIDATE && eval_res != nullptr) {
-                    Config<float, CostFunction::CF_Krass> cc = conf;
+                    auto cc = conf;
+                    auto b0 = conf.Bins[0];
+                    cc.Bins.clear();
+                    cc.Bins.push_back(b0);
                     cc.BoxType = Detail::BoxGenerationType::LIST;
 
                     std::sort(eval_res->decomp_.begin(), eval_res->decomp_.end(), [](const auto& _v1, const auto& _v2){
@@ -203,9 +207,9 @@ int main() {
 
                     Detail::BoxList<float> list;
                     list.shuffle_boxes_ = true;
-                    //for(const auto& [id, bx] : eval_res->decomp_){
-                    //    list.list_.push_back( { {bx.getSize().x, conf.Height - 2.f, bx.getSize().y }, 1, TP::PF_Y_XZ | TP::PF_Y_ZX });
-                    //}
+                    for(const auto& [id, bx] : eval_res->decomp_){
+                        list.list_.push_back( { {bx.getSize().x, conf.Bins[0].Height - 2.f, bx.getSize().y }, 1, TP::PF_Y_XZ | TP::PF_Y_ZX });
+                    }
                     cc.BoxList = list;
 
                     pr = std::make_unique<Prmise>(solve(cc));
@@ -332,30 +336,30 @@ int main() {
             ImGui::InputInt("Box Count", (int32_t*)&conf.EvalBoxCount);
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.f, 1.f, 0.f, 1.f));
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
-            // if(ImGui::Button("Generate\nProblem", ImVec2(100, 60))) {
-            //     if(conf.UseRandomSeed){
-            //         conf.Seed = std::random_device()();
-            //     }
-            //     eval_res = Util::create_ground_truth(glm::vec<2, int32_t>{(int32_t)conf.Bounds.x, (int32_t)conf.Bounds.y}, conf.EvalBoxCount, conf.Seed);
-            // }
+            if(ImGui::Button("Generate\nProblem", ImVec2(100, 60))) {
+                if(conf.UseRandomSeed){
+                    conf.Seed = std::random_device()();
+                }
+                eval_res = Util::create_ground_truth(glm::vec<2, int32_t>{(int32_t)conf.Bins[0].Bounds.x, (int32_t)conf.Bins[0].Bounds.y}, conf.EvalBoxCount, conf.Seed);
+            }
 
-            // ImGui::PopStyleColor(2);
-            // ImGui::SameLine();
-            // ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.f, 0.f, 0.0f, 1.f));
-            // if(ImGui::Button("Reset", ImVec2(100, 60))) {
-            //     eval_res = nullptr;
-            // }
-            // ImGui::PopStyleColor();
+            ImGui::PopStyleColor(2);
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.f, 0.f, 0.0f, 1.f));
+            if(ImGui::Button("Reset", ImVec2(100, 60))) {
+                eval_res = nullptr;
+            }
+            ImGui::PopStyleColor();
 
-            // if(eval_res){
-            //     const float ww = (ImGui::GetContentRegionAvail().x - 200) * 0.5f;
-            //     const float ar = conf.Bounds.y / conf.Bounds.x;
-            //     ImGui::Dummy({0, 10});
-            //     ImGui::SetCursorPosX(ww);
-            //     ImGui::Image((void*)&eval_res->tex_, 
-            //         ImVec2(200, int32_t(200.f * ar))
-            //     );
-            // }
+            if(eval_res){
+                const float ww = (ImGui::GetContentRegionAvail().x - 200) * 0.5f;
+                const float ar = conf.Bins[0].Bounds.y / conf.Bins[0].Bounds.x;
+                ImGui::Dummy({0, 10});
+                ImGui::SetCursorPosX(ww);
+                ImGui::Image((void*)&eval_res->tex_, 
+                    ImVec2(200, int32_t(200.f * ar))
+                );
+            }
             
         }
 
@@ -367,10 +371,10 @@ int main() {
         //------------------------
 
         BeginDrawing();
-        ClearBackground(RAYWHITE);
+        ClearBackground(WHITE);
 
         BeginMode3D(camera);
-        DrawGrid(100, 10.0f);
+        //DrawGrid(100, 10.0f);
 
         for(size_t i = 0; i < conf.Bins.size(); ++i){
 
