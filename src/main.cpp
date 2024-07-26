@@ -302,7 +302,7 @@ int main() {
         }
         ImGui::PopFont();
 
-         ImGui::Dummy({0, 4});
+        ImGui::Dummy({0, 4});
         ImGui::Separator();
         ImGui::Dummy({0, 4});
 
@@ -374,7 +374,7 @@ int main() {
         ClearBackground(WHITE);
 
         BeginMode3D(camera);
-        //DrawGrid(100, 10.0f);
+        DrawGrid(100, 10.0f);
 
         for(size_t i = 0; i < conf.Bins.size(); ++i){
 
