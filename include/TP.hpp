@@ -905,11 +905,12 @@ void TP::Detail::run_impl(
     const auto rbox = [&](const T _vol, const bool _c) -> glm::vec<3, T> {
         const T s = std::pow(_vol, 1. / 3.);
         if (_c) return glm::vec<3, T>(s) * T(0.5);
-        const T ss = 3 * s;
-        const T d1 = DistD(0.2 * ss, ss)(g);
-        const T d2 = DistD(0.2 * (ss - d1), ss - d1)(g);
-        const T d3 = ss - d1 - d2;
-        return { std::max(T(2.), d1), std::max(T(2.), d2), std::max(T(2.), d3) };
+
+        const T r1 = s * DistD(0.7, 1.3)(g);
+        const T r2 = s * DistD(0.7, 1.3)(g);
+        const T r3 = _vol / (r1 * r2);
+
+        return { std::max(T(2.), r1 * T(0.5)), std::max(T(2.), r2 * T(0.5)), std::max(T(2.), r3 * T(0.5)) };
     };
 
     const uint32_t dp = _conf.AllowedPermutations;
