@@ -18,6 +18,8 @@ endif()
 
 include(FetchContent)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 add_library( TP INTERFACE )
 
 option(BUILD_AS_LIBRARY "Use as library" FALSE)
